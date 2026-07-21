@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { scanProject } from '../../src/core/scanner.js';
-import { SecretsAnalyzer, hasPlaceholderDbCredentials } from '../../src/analyzers/secrets.js';
+import { SecretsAnalyzer, hasPlaceholderDbCredentials, isReadableIdentifierValue } from '../../src/analyzers/secrets.js';
 import { shannonEntropy } from '../../src/utils/patterns.js';
 import { readFile } from 'node:fs/promises';
 
@@ -17,6 +17,19 @@ describe('hasPlaceholderDbCredentials (field-tested against orion_new)', () => {
     // The actual committed secret PRISM must still catch:
     expect(hasPlaceholderDbCredentials('postgresql://aether:Aether2024!@localhost:5433/mcp_db')).toBe(false);
     expect(hasPlaceholderDbCredentials('postgres://svc_prod:Xk9$mQ2vL@10.0.0.5/main')).toBe(false);
+  });
+});
+
+describe('isReadableIdentifierValue (field-tested against orion_new)', () => {
+  it('treats a readable key NAME as not-a-secret', () => {
+    expect(isReadableIdentifierValue("const STORAGE_KEY = 'orion_dashboard_token'")).toBe(true);
+    expect(isReadableIdentifierValue('const CACHE_KEY = "user-profile-cache-v2"')).toBe(true);
+    expect(isReadableIdentifierValue("TOKEN = 'refresh_token_storage'")).toBe(true);
+  });
+
+  it('still flags a real high-entropy secret value', () => {
+    expect(isReadableIdentifierValue('const API_KEY = "sk-proj-Ab3Xk9mQ2vL8pR4tN6wZ"')).toBe(false);
+    expect(isReadableIdentifierValue('const SECRET = "aB3xK9mQ2vL8pR4tN6wZ0uY"')).toBe(false);
   });
 });
 import { join } from 'node:path';

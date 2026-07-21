@@ -179,6 +179,11 @@ export class SecretsAnalyzer implements Analyzer {
               // False positive check: is this a placeholder/example?
               if (isPlaceholderValue(line)) continue;
 
+              // SEC-ENV-VALUE specifically fires on `KEY = "..."`; skip when the
+              // value is a readable identifier (a storage/cache key NAME), not a
+              // high-entropy secret. Field-tested: STORAGE_KEY = 'orion_dashboard_token'.
+              if (pattern.id === 'SEC-ENV-VALUE' && isReadableIdentifierValue(line)) continue;
+
               // Adjust severity based on file context
               const adjusted = adjustSeverity(pattern.severity, effectiveContext);
               if (adjusted === null) continue; // Skip this finding entirely
@@ -309,6 +314,22 @@ export function hasPlaceholderDbCredentials(line: string): boolean {
   return /:\/\/[a-z0-9_.-]+:(password|passwd|pass|secret|root|admin|user|username|test|dbpass|postgres|mysql|mongo)@/i.test(
     line,
   );
+}
+
+/**
+ * True when a SEC-ENV-VALUE line's quoted value is a readable identifier (a
+ * storage/cache key NAME like `orion_dashboard_token`) rather than a real,
+ * high-entropy secret. Keys on the value being lowercase snake/kebab words OR
+ * low Shannon entropy — a real token (mixed case, random) fails both, so it's
+ * still flagged. Field-tested against orion_new's `STORAGE_KEY`.
+ */
+export function isReadableIdentifierValue(line: string): boolean {
+  const m = /(?:TOKEN|SECRET|KEY|PASS|CREDENTIALS)\s*=\s*['"]([^'"]+)['"]/i.exec(line);
+  if (!m) return false;
+  const value = m[1];
+  const isSnakeKebabWords = /^[a-z][a-z0-9]*([_-][a-z0-9]+)+$/.test(value); // e.g. orion_dashboard_token
+  const lowEntropy = shannonEntropy(value) < 3.2;
+  return isSnakeKebabWords || lowEntropy;
 }
 
 /**
