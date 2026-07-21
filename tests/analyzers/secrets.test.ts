@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { scanProject } from '../../src/core/scanner.js';
-import { SecretsAnalyzer, hasPlaceholderDbCredentials, isReadableIdentifierValue } from '../../src/analyzers/secrets.js';
+import {
+  SecretsAnalyzer,
+  hasPlaceholderDbCredentials,
+  isReadableIdentifierValue,
+} from '../../src/analyzers/secrets.js';
 import { shannonEntropy } from '../../src/utils/patterns.js';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { ProjectScan } from '../../src/core/types.js';
 
 describe('hasPlaceholderDbCredentials (field-tested against orion_new)', () => {
   it('flags obvious placeholder credentials as NOT real secrets', () => {
@@ -32,8 +38,6 @@ describe('isReadableIdentifierValue (field-tested against orion_new)', () => {
     expect(isReadableIdentifierValue('const SECRET = "aB3xK9mQ2vL8pR4tN6wZ0uY"')).toBe(false);
   });
 });
-import { join } from 'node:path';
-import type { ProjectScan } from '../../src/core/types.js';
 
 const FIXTURE_PATH = resolve(__dirname, '../fixtures/sample-project');
 
