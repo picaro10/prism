@@ -1,5 +1,9 @@
 # PRISM
 
+[![CI](https://github.com/picaro10/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/picaro10/prism/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)
+
 **Static-analysis project auditor for code quality, security, and structural health.**
 
 PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across six dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
@@ -28,11 +32,25 @@ The overall score is a weighted average of per-category scores, each on a 0–10
 
 ---
 
-## Install and build
+## Install
+
+**From npm** (once published):
 
 ```sh
+npm install -g @latenciatech/prism
+prism analyze <path>
+# or without installing:
+npx @latenciatech/prism analyze <path>
+```
+
+**From source** (works today):
+
+```sh
+git clone https://github.com/picaro10/prism.git
+cd prism
 npm install
 npm run build
+node dist/cli/index.js analyze <path>
 ```
 
 The compiled CLI is placed at `dist/cli/index.js` and exposed as the `prism` binary via the `bin` field in `package.json`.
