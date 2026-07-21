@@ -37,15 +37,16 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Dogfood gate: PRISM audits itself, and holds itself to a high bar — a
-      # tool that audits quality shouldn't pass itself at a mediocre 6/10.
-      # analyze exits non-zero below --min-score, and --fail-on/--max-* enforce
-      # hard security gates so a single new critical can't hide behind a good
-      # average. The JUnit sidecar surfaces findings in the CI UI.
+      # Dogfood gate: PRISM audits itself, held to a high bar — a tool that
+      # audits quality shouldn't pass itself at a mediocre 6/10. --fail-on
+      # critical is the hard security door (any critical — a secret, a
+      # DEP-AUDIT-CRITICAL — fails the build). We deliberately do NOT gate on
+      # --max-high: DEP-AUDIT-HIGH is dynamic (new transitive advisories appear
+      # outside our control), so a high count would make CI flaky; the 8.5 score
+      # floor already penalizes it. The JUnit sidecar surfaces findings in the UI.
       - name: Self-audit (dogfood gate)
         run: >-
           node dist/cli/index.js analyze .
           --min-score 8.5
           --fail-on critical
-          --max-high 0
           --junit prism-junit.xml

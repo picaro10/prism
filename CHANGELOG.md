@@ -10,11 +10,18 @@ All notable changes to PRISM are documented here. The format is based on
   The overall score is no longer the only gate: a single new critical can't hide behind a good
   average. Every failing rule is reported.
 - CI now runs `test:coverage` (enforced thresholds) and holds the self-audit to a high bar
-  (`--min-score 8.5 --fail-on critical --max-high 0`) with a JUnit sidecar.
+  (`--min-score 8.5 --fail-on critical`) with a JUnit sidecar. `--fail-on critical` is the hard
+  door; `--max-high` is deliberately left off the dogfood since `DEP-AUDIT-HIGH` is dynamic
+  (transitive advisories appear outside our control) and would make CI flaky.
 
 ### Fixed
 - **CI never triggered** — the workflow listened on `master` while the published repo runs on
   `main`, so pushes/PRs ran no checks. Now targets `main`.
+- **CI test failure on clean checkout** — the secrets analyzer test scans a fixture `.env` that
+  the global `.gitignore` excluded, so it was never committed; passed locally, failed on CI.
+  Added a `.gitignore` exception for `tests/fixtures/**/.env` and committed the (fake-secret)
+  fixture.
+- Bumped `fast-uri` (transitive) to clear a high-severity advisory.
 - README intro contradicted itself (called the LLM layer "future work" while documenting it as
   shipped). Reworded: deterministic static analysis + an optional, opt-in LLM triage layer, both
   shipped today.
