@@ -292,7 +292,22 @@ function isPlaceholderValue(line: string): boolean {
     lower.includes('${') || // Template literals / env var references
     lower.includes('process.env') ||
     lower.includes('os.environ') ||
-    lower.includes('os.getenv')
+    lower.includes('os.getenv') ||
+    hasPlaceholderDbCredentials(line)
+  );
+}
+
+/**
+ * True when a connection string uses obviously generic placeholder credentials
+ * (`user:password@`, `root:root@`, `admin:admin@`) — an example/template, not a
+ * real secret. The check keys on the PASSWORD being a placeholder word, so a
+ * real credential like `aether:Aether2024!@host` is still flagged. Field-tested
+ * against orion_new, where template DB URLs in generator/validator scripts were
+ * producing false critical findings.
+ */
+export function hasPlaceholderDbCredentials(line: string): boolean {
+  return /:\/\/[a-z0-9_.-]+:(password|passwd|pass|secret|root|admin|user|username|test|dbpass|postgres|mysql|mongo)@/i.test(
+    line,
   );
 }
 

@@ -1,9 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { scanProject } from '../../src/core/scanner.js';
-import { SecretsAnalyzer } from '../../src/analyzers/secrets.js';
+import { SecretsAnalyzer, hasPlaceholderDbCredentials } from '../../src/analyzers/secrets.js';
 import { shannonEntropy } from '../../src/utils/patterns.js';
 import { readFile } from 'node:fs/promises';
+
+describe('hasPlaceholderDbCredentials (field-tested against orion_new)', () => {
+  it('flags obvious placeholder credentials as NOT real secrets', () => {
+    expect(hasPlaceholderDbCredentials('DATABASE_URL=postgres://user:password@db:5432/app')).toBe(true);
+    expect(hasPlaceholderDbCredentials('mysql://user:password@localhost:3306/mydb')).toBe(true);
+    expect(hasPlaceholderDbCredentials('mongodb://root:root@host/db')).toBe(true);
+    expect(hasPlaceholderDbCredentials('postgres://admin:admin@localhost/x')).toBe(true);
+  });
+
+  it('does NOT treat a real credential as a placeholder (keeps the true positive)', () => {
+    // The actual committed secret PRISM must still catch:
+    expect(hasPlaceholderDbCredentials('postgresql://aether:Aether2024!@localhost:5433/mcp_db')).toBe(false);
+    expect(hasPlaceholderDbCredentials('postgres://svc_prod:Xk9$mQ2vL@10.0.0.5/main')).toBe(false);
+  });
+});
 import { join } from 'node:path';
 import type { ProjectScan } from '../../src/core/types.js';
 
