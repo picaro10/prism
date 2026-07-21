@@ -137,6 +137,10 @@ export async function runAudit(
     .flatMap((r) => r.findings)
     .sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
+  // Assign stable fingerprints (robust to line shifts) for baseline/new-code diffing.
+  const { assignFingerprints } = await import('./fingerprint.js');
+  await assignFingerprints(allFindings, fileReader);
+
   // Derive project name
   let projectName = scan.rootPath.split('/').pop() || 'unknown';
   try {
