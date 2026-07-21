@@ -12,6 +12,9 @@ coverage/
 .env
 .env.*
 !.env.example
+# Test fixtures ship a committed .env of FAKE secrets — the secrets analyzer
+# tests scan it. Without this exception CI has no fixture and the test fails.
+!tests/fixtures/**/.env
 
 # Logs
 *.log
