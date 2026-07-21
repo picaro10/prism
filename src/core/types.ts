@@ -18,6 +18,7 @@ export type AnalysisCategory =
   | 'docker'
   | 'tests'
   | 'consistency'
+  | 'agentic' // AI-agent code risks (tools, shell, secrets-in-prompt)
   | 'architecture'; // future: LLM-powered
 
 /** A single finding from an analyzer */
@@ -46,6 +47,12 @@ export interface Finding {
   suggestion?: string;
   /** Metadata the analyzer wants to attach */
   meta?: Record<string, unknown>;
+  /**
+   * Stable identity robust to line-number shifts (rule + file + normalized
+   * flagged line). Assigned by the engine; used by the new-code / baseline gate
+   * to tell a genuinely new finding from one that just moved.
+   */
+  fingerprint?: string;
 }
 
 /** Score for a single category (0-10) */

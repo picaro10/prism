@@ -61,6 +61,10 @@ program
   .option('--fail-on <severity>', 'Fail when any finding is at or above this severity (critical|high|medium|low)')
   .option('--max-critical <n>', 'Fail when there are more than N critical findings')
   .option('--max-high <n>', 'Fail when there are more than N high findings')
+  .option(
+    '--baseline <ref>',
+    'New-code gate: apply severity rules only to findings NOT in this baseline (a git ref like origin/main, or a saved .json report)',
+  )
   .option('-v, --verbose', 'Verbose output', false)
   .option(
     '--ai',
@@ -76,6 +80,7 @@ program
   .option('--ai-concurrency <n>', 'Max concurrent triage calls (default 5)')
   .option('--dry-run', 'Run the AI layer with canned responses — no network, no API key (demos/tests)', false)
   .option('--junit <path>', 'Also write a JUnit XML report (findings as failed test cases) for CI')
+  .option('--sarif <path>', 'Also write a SARIF 2.1.0 report (for GitHub Code Scanning, VS Code, etc.)')
   .action(async (target: string, options: Record<string, string | boolean>) => {
     const targetStr = String(target);
 
@@ -258,6 +263,11 @@ program
         await writeJunitReport(report, String(options.junit));
         console.error(chalk.green(`  ✓ JUnit report saved to ${options.junit}`));
       }
+      if (options.sarif) {
+        const { writeSarifReport } = await import('../reporters/sarif.js');
+        await writeSarifReport(report, String(options.sarif));
+        console.error(chalk.green(`  ✓ SARIF report saved to ${options.sarif}`));
+      }
 
       // Non-blocking update check (once/24h, opt-out via PRISM_NO_UPDATE_CHECK).
       // To stderr so it never mixes into JSON on stdout; failure is silent.
@@ -275,11 +285,34 @@ program
         /* update check must never affect the run */
       }
 
+      // New-code gate: when --baseline is set, severity rules apply only to
+      // findings NOT already in the baseline (old debt doesn't gate; new code
+      // must not add). --min-score still applies to the whole project's score.
+      let gateReport = report;
+      if (options.baseline) {
+        try {
+          const { resolveBaselineReport } = await import('../core/baseline.js');
+          const { diffByFingerprint, reportOfFindings } = await import('../core/new-code-gate.js');
+          const baseline = await resolveBaselineReport(String(options.baseline), absolutePath);
+          const d = diffByFingerprint(baseline, report);
+          console.error(
+            chalk.dim(
+              `\n  Baseline '${options.baseline}': ${report.findings.length} total · ${d.existingCount} existing · ` +
+                `${chalk.bold(`${d.newFindings.length} new`)} · ${d.fixedFindings.length} fixed`,
+            ),
+          );
+          gateReport = reportOfFindings(report, d.newFindings);
+        } catch (err) {
+          console.error(chalk.red(`\n  ✗ ${err instanceof Error ? err.message : 'baseline resolution failed'}\n`));
+          await finish(EXIT.USAGE);
+        }
+      }
+
       // Exit code: the audit ran, so this reflects the RESULT (not an error).
       // Evaluate the quality gate — score AND per-severity rules, so a single
       // new critical can't hide behind a good average.
       const { evaluateQualityGate } = await import('../core/quality-gate.js');
-      const gate = evaluateQualityGate(report, {
+      const gate = evaluateQualityGate(gateReport, {
         minScore,
         failOn: failOn as import('../core/types.js').Severity | undefined,
         maxCritical: options.maxCritical !== undefined ? Number(String(options.maxCritical)) : undefined,

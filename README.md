@@ -20,6 +20,7 @@ PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a loc
 | **Structure** | 1.0× | README, `.gitignore`, linter config, `tsconfig`; flat-root dumps; excessive nesting; god files (`STR-011`: >400 / >600 / >900 / >1500 LOC with tiered severity); circular import dependencies (`STR-012`, via Tarjan SCC on the resolved import graph); dead files (`STR-013`: TS/JS source nothing reaches — counts type-only imports, tsconfig aliases, package.json refs, path strings in code/HTML/Dockerfiles/shell, shebang and convention entries; skips itself if a tsconfig is unparseable). |
 | **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0`. |
 | **Consistency** | 0.8× | Mixed file-naming conventions (kebab/snake/camel/pascal) within the same language; mixed natural language (Spanish + English identifiers in the same file); inconsistent indentation (tabs vs spaces). |
+| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell commands built with interpolation/concatenation (`AGT-001`, agent command injection — `execFile` is the safe pattern); environment secrets interpolated into an LLM prompt/message (`AGT-002`, credential leaking into model context). High-signal and conservative by design. |
 
 The overall score is a weighted average of per-category scores, each on a 0–10 scale.
 
@@ -87,7 +88,9 @@ zip-slip protection). Temporary copies are deleted after the audit unless `--kee
 | `--fail-on <severity>` | — | Fail when any finding is at or above this severity (`critical`/`high`/`medium`/`low`) |
 | `--max-critical <n>` | — | Fail when there are more than N critical findings |
 | `--max-high <n>` | — | Fail when there are more than N high findings |
+| `--baseline <ref>` | — | New-code gate: severity rules apply only to findings **not** in this baseline (a git ref like `origin/main`, or a saved `.json` report) |
 | `--junit <path>` | — | Also write a JUnit XML report (findings as failed test cases) for CI |
+| `--sarif <path>` | — | Also write a SARIF 2.1.0 report (for GitHub Code Scanning, VS Code, etc.) |
 | `--dry-run` | false | Run the AI layer with canned responses — no network, no key |
 | `--keep` | false | Keep the temporary clone/extraction instead of deleting it |
 | `-v, --verbose` | false | Show per-file progress during the audit |
@@ -138,6 +141,23 @@ prism analyze . --min-score 8.5 --fail-on critical --max-high 0 --junit prism-ju
 
 The gate fails (exit `1`) if *any* rule trips: score below `--min-score`, a finding at or above
 `--fail-on`, or a count over `--max-critical`/`--max-high`. Every failing reason is printed.
+
+**New-code gate ("clean as you code").** `--baseline <git-ref>` makes the severity rules apply
+only to findings that are **not** already in the baseline — so legacy debt doesn't block, but new
+code can't add a critical. PRISM checks the ref out into a temporary worktree, audits it, and
+diffs by a **fingerprint** (rule + file + normalized code) that survives line moves and
+re-indentation, so a shifted finding isn't mistaken for a new one:
+
+```sh
+# Fail only if THIS branch introduces a new critical vs. main:
+prism analyze . --baseline origin/main --fail-on critical --min-score 0
+```
+
+`--baseline` also accepts a saved `.json` report instead of a git ref.
+
+**SARIF for GitHub Code Scanning.** `--sarif prism.sarif` writes a SARIF 2.1.0 document; upload it
+with `github/codeql-action/upload-sarif` and findings appear as inline annotations on the PR and
+in the repo's Security tab, ranked by `security-severity`.
 
 **JSON output** (`-o json`) is a stable, documented interface: with `-f` it writes the report
 file; without `-f` it prints **only** the JSON to stdout (all logs go to stderr), so it pipes
