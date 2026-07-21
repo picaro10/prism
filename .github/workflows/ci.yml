@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   test:
@@ -31,13 +31,21 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Test
-        run: npm test
+      - name: Test with coverage
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build
 
-      # Dogfood gate: PRISM audits itself. analyze exits non-zero when the
-      # overall score drops below 6, so a quality regression fails the build.
+      # Dogfood gate: PRISM audits itself, and holds itself to a high bar — a
+      # tool that audits quality shouldn't pass itself at a mediocre 6/10.
+      # analyze exits non-zero below --min-score, and --fail-on/--max-* enforce
+      # hard security gates so a single new critical can't hide behind a good
+      # average. The JUnit sidecar surfaces findings in the CI UI.
       - name: Self-audit (dogfood gate)
-        run: node dist/cli/index.js analyze .
+        run: >-
+          node dist/cli/index.js analyze .
+          --min-score 8.5
+          --fail-on critical
+          --max-high 0
+          --junit prism-junit.xml

@@ -2,7 +2,7 @@
 
 **Static-analysis project auditor for code quality, security, and structural health.**
 
-PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across six dimensions. It is the static-analysis layer (Fase 1) of a larger roadmap; the LLM-intelligence layer (Fase 2) is future work.
+PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across six dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
 
 ---
 
@@ -66,6 +66,9 @@ zip-slip protection). Temporary copies are deleted after the audit unless `--kee
 | `-f, --file <path>` | — | Output file path (json: stdout if omitted; html: `prism-report.html`) |
 | `--only <categories>` | all | Run only the specified analyzers (comma-separated) |
 | `--min-score <n>` | `6` | Fail (exit `1`) when the overall score is below this (0–10) |
+| `--fail-on <severity>` | — | Fail when any finding is at or above this severity (`critical`/`high`/`medium`/`low`) |
+| `--max-critical <n>` | — | Fail when there are more than N critical findings |
+| `--max-high <n>` | — | Fail when there are more than N high findings |
 | `--junit <path>` | — | Also write a JUnit XML report (findings as failed test cases) for CI |
 | `--dry-run` | false | Run the AI layer with canned responses — no network, no key |
 | `--keep` | false | Keep the temporary clone/extraction instead of deleting it |
@@ -107,6 +110,16 @@ prism analyze /path/to/project -v
 
 Codes `0`/`1` are the audit *result*; `2`/`3` mean it could not produce one. A CI gate keys
 on `0` vs non-zero; an agent can tell "fix the findings" (`1`) from "you invoked me wrong" (`2`).
+
+**Quality gate for CI.** The score is not the only door — a single new critical can hide behind a
+good average. Combine `--min-score` with per-severity rules so security issues fail hard:
+
+```sh
+prism analyze . --min-score 8.5 --fail-on critical --max-high 0 --junit prism-junit.xml
+```
+
+The gate fails (exit `1`) if *any* rule trips: score below `--min-score`, a finding at or above
+`--fail-on`, or a count over `--max-critical`/`--max-high`. Every failing reason is printed.
 
 **JSON output** (`-o json`) is a stable, documented interface: with `-f` it writes the report
 file; without `-f` it prints **only** the JSON to stdout (all logs go to stderr), so it pipes

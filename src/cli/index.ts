@@ -58,6 +58,9 @@ program
   .option('-f, --file <path>', 'Output file path (for json output)')
   .option('--only <categories>', 'Run only specific analyzers (comma-separated)', '')
   .option('--min-score <n>', `Fail (exit 1) when the overall score is below this (default ${DEFAULT_MIN_SCORE})`)
+  .option('--fail-on <severity>', 'Fail when any finding is at or above this severity (critical|high|medium|low)')
+  .option('--max-critical <n>', 'Fail when there are more than N critical findings')
+  .option('--max-high <n>', 'Fail when there are more than N high findings')
   .option('-v, --verbose', 'Verbose output', false)
   .option(
     '--ai',
@@ -86,6 +89,14 @@ program
     const minScore = options.minScore !== undefined ? Number(String(options.minScore)) : DEFAULT_MIN_SCORE;
     if (!Number.isFinite(minScore) || minScore < 0 || minScore > 10) {
       console.error(chalk.red(`\n  ✗ --min-score must be a number between 0 and 10 (got: ${options.minScore})\n`));
+      process.exit(EXIT.USAGE);
+    }
+
+    // Validate --fail-on severity if provided.
+    const { SEVERITIES } = await import('../core/quality-gate.js');
+    const failOn = options.failOn ? String(options.failOn) : undefined;
+    if (failOn && !SEVERITIES.includes(failOn as (typeof SEVERITIES)[number])) {
+      console.error(chalk.red(`\n  ✗ --fail-on must be one of: ${SEVERITIES.join(', ')} (got: ${failOn})\n`));
       process.exit(EXIT.USAGE);
     }
 
@@ -265,8 +276,22 @@ program
       }
 
       // Exit code: the audit ran, so this reflects the RESULT (not an error).
-      // Below the threshold → 1 (findings to fix); otherwise → 0.
-      await finish(report.overallScore < minScore ? EXIT.FINDINGS : EXIT.OK);
+      // Evaluate the quality gate — score AND per-severity rules, so a single
+      // new critical can't hide behind a good average.
+      const { evaluateQualityGate } = await import('../core/quality-gate.js');
+      const gate = evaluateQualityGate(report, {
+        minScore,
+        failOn: failOn as import('../core/types.js').Severity | undefined,
+        maxCritical: options.maxCritical !== undefined ? Number(String(options.maxCritical)) : undefined,
+        maxHigh: options.maxHigh !== undefined ? Number(String(options.maxHigh)) : undefined,
+      });
+      if (!gate.passed) {
+        console.error(chalk.red('\n  ✗ Quality gate failed:'));
+        for (const r of gate.reasons) console.error(chalk.red(`    · ${r}`));
+        console.error('');
+        await finish(EXIT.FINDINGS);
+      }
+      await finish(EXIT.OK);
     } catch (error) {
       spinner.fail(chalk.red('Audit failed'));
       console.error(chalk.red(`\n  ${error instanceof Error ? error.message : 'Unknown error'}\n`));
