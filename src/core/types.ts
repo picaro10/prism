@@ -18,6 +18,7 @@ export type AnalysisCategory =
   | 'docker'
   | 'tests'
   | 'consistency'
+  | 'agentic' // AI-agent code risks (tools, shell, secrets-in-prompt)
   | 'architecture'; // future: LLM-powered
 
 /** A single finding from an analyzer */

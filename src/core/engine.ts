@@ -20,6 +20,7 @@ import { DependenciesAnalyzer } from '../analyzers/dependencies.js';
 import { DockerAnalyzer } from '../analyzers/docker.js';
 import { TestsAnalyzer } from '../analyzers/tests.js';
 import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
+import { AgenticAnalyzer } from '../analyzers/agentic.js';
 
 const PRISM_VERSION = '1.0.0';
 
@@ -27,7 +28,15 @@ const PRISM_VERSION = '1.0.0';
 const MAX_READ_BYTES = 15 * 1024 * 1024;
 
 /** Categories accepted by the `--only` filter (one per static analyzer). */
-export const ANALYZER_CATEGORIES = ['structure', 'security', 'dependencies', 'docker', 'tests', 'consistency'] as const;
+export const ANALYZER_CATEGORIES = [
+  'structure',
+  'security',
+  'dependencies',
+  'docker',
+  'tests',
+  'consistency',
+  'agentic',
+] as const;
 
 /** Weight each category contributes to the overall score */
 const CATEGORY_WEIGHTS: Record<string, number> = {
@@ -37,6 +46,7 @@ const CATEGORY_WEIGHTS: Record<string, number> = {
   docker: 1.0,
   tests: 1.5,
   consistency: 0.8,
+  agentic: 1.5, // AI-agent security risks weigh like tests/deps
   architecture: 2.0, // Future: LLM-powered
 };
 
@@ -49,6 +59,7 @@ function createAnalyzers(): Analyzer[] {
     new DockerAnalyzer(),
     new TestsAnalyzer(),
     new ConsistencyAnalyzer(),
+    new AgenticAnalyzer(),
   ];
 }
 

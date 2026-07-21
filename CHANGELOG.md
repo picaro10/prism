@@ -6,6 +6,11 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Agentic analyzer** — a new audit dimension for AI-agent code that mainstream analyzers
+  (Semgrep, Sonar) don't model: `AGT-001` shell commands built with interpolation/concatenation
+  (agent command injection; `execFile` is the safe pattern), `AGT-002` environment secrets
+  interpolated into an LLM prompt/message. High-signal and conservative — skips comments and
+  regex definitions so a scanner doesn't flag itself.
 - **New-code gate** — `--baseline <git-ref|report.json>`. Severity rules apply only to findings
   not already in the baseline ("clean as you code"): legacy debt doesn't block, new code can't
   add a critical. Diffs by a **fingerprint** (rule + file + normalized code) that survives line

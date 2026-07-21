@@ -20,6 +20,7 @@ PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a loc
 | **Structure** | 1.0× | README, `.gitignore`, linter config, `tsconfig`; flat-root dumps; excessive nesting; god files (`STR-011`: >400 / >600 / >900 / >1500 LOC with tiered severity); circular import dependencies (`STR-012`, via Tarjan SCC on the resolved import graph); dead files (`STR-013`: TS/JS source nothing reaches — counts type-only imports, tsconfig aliases, package.json refs, path strings in code/HTML/Dockerfiles/shell, shebang and convention entries; skips itself if a tsconfig is unparseable). |
 | **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0`. |
 | **Consistency** | 0.8× | Mixed file-naming conventions (kebab/snake/camel/pascal) within the same language; mixed natural language (Spanish + English identifiers in the same file); inconsistent indentation (tabs vs spaces). |
+| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell commands built with interpolation/concatenation (`AGT-001`, agent command injection — `execFile` is the safe pattern); environment secrets interpolated into an LLM prompt/message (`AGT-002`, credential leaking into model context). High-signal and conservative by design. |
 
 The overall score is a weighted average of per-category scores, each on a 0–10 scale.
 
