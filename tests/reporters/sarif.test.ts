@@ -24,9 +24,12 @@ function report(findings: Finding[]): AuditReport {
       hasCi: false,
       frameworks: [],
     },
-    prismVersion: '1.0.0',
+    prismVersion: FIXTURE_PRISM_VERSION,
   };
 }
+
+/** Arbitrary fixture version — driver.version must mirror the REPORT's prismVersion, not the release. */
+const FIXTURE_PRISM_VERSION = '9.9.9-test';
 
 describe('formatSarifReport', () => {
   it('produces a valid SARIF 2.1.0 document', () => {
@@ -35,7 +38,7 @@ describe('formatSarifReport', () => {
     );
     expect(doc.version).toBe('2.1.0');
     expect(doc.runs[0].tool.driver.name).toBe('PRISM');
-    expect(doc.runs[0].tool.driver.version).toBe('1.1.0');
+    expect(doc.runs[0].tool.driver.version).toBe(FIXTURE_PRISM_VERSION);
     const result = doc.runs[0].results[0];
     expect(result.ruleId).toBe('SEC-1');
     expect(result.level).toBe('error'); // critical → error
