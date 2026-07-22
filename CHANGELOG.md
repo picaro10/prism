@@ -24,6 +24,20 @@ First release published to npm (`@latenciatech/prism`).
   not just the source tree.
 - **README**: honest language/platform support matrix; roadmap aligned with shipped reality;
   the footer no longer contradicts the MIT license.
+- **Four new agentic rules** — `AGT-003` destructive tool without a confirmation gate (aggregate
+  penalty capped: N ungated tools share one root cause), `AGT-004` external content interpolated
+  into a prompt (the prompt-injection front door), `AGT-005` MCP/agent server bound to `0.0.0.0`,
+  `AGT-006` security gate whose catch returns permissive (fails open). All conservative, all
+  carrying the anti-self-detection guard, all field-tested before merging.
+- **Public rule catalog** — `docs/rules/` documents all 68 rules with severities and their
+  field-tested false-positive notes; a sync test fails CI if a rule ships undocumented or the
+  catalog goes stale. Issue templates (bug/FP/FN/new-rule) and a full add-a-rule checklist in
+  CONTRIBUTING.
+- **Reproducible FP benchmark** — `npm run bench`: a corpus of planted true positives plus the
+  false-positive traps actually hit in the field, materialized to temp projects at run time
+  (risky literals are assembled, never committed). Reports precision/recall/timing and fails CI
+  on any regression in either direction. PRISM's own repo now carries a `prism.config.json`
+  whose justified suppressions cover the benchmark corpus — the feature, dogfooded.
 - **Agentic analyzer** — a new audit dimension for AI-agent code that mainstream analyzers
   (Semgrep, Sonar) don't model: `AGT-001` shell commands built with interpolation/concatenation
   (agent command injection; `execFile` is the safe pattern), `AGT-002` environment secrets

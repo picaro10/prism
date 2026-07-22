@@ -37,6 +37,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      # FP benchmark: planted issues must be found, historical FP traps must
+      # stay silent. Fails on any regression in either direction — coverage
+      # gained at the cost of noise never merges.
+      - name: FP benchmark
+        run: npm run bench
+
       # Dogfood gate: PRISM audits itself, held to a high bar — a tool that
       # audits quality shouldn't pass itself at a mediocre 6/10. --fail-on
       # critical is the hard security door (any critical — a secret, a

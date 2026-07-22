@@ -69,11 +69,13 @@ signal only, no score impact expected.
 ## Validation before sending
 
 ```sh
-npm run lint && npx tsc --noEmit && npm run test:coverage && npm run build && npm run audit
+npm run lint && npx tsc --noEmit && npm run test:coverage && npm run build && npm run bench && npm run audit
 ```
 
-All five green locally = CI green (plus the package-smoke job, which verifies the packed
-tarball installs and runs).
+All six green locally = CI green (plus the package-smoke job, which verifies the packed
+tarball installs and runs). `npm run bench` is the false-positive benchmark: planted issues
+must be found, historical FP traps must stay silent — a rule change that regresses either
+direction fails before it dirties a real report.
 
 ## License
 

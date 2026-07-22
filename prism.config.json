@@ -1,0 +1,24 @@
+{
+  "suppressions": [
+    {
+      "rule": "AGT-001",
+      "file": "benchmarks/cases.ts",
+      "reason": "Benchmark corpus: the vulnerable patterns exist as string content, materialized to temp projects at run time"
+    },
+    {
+      "rule": "AGT-002",
+      "file": "benchmarks/cases.ts",
+      "reason": "Benchmark corpus: planted secret-in-prompt sample lives inside a string literal"
+    },
+    {
+      "rule": "AGT-004",
+      "file": "benchmarks/cases.ts",
+      "reason": "Benchmark corpus: planted prompt-injection sample lives inside a string literal"
+    },
+    {
+      "rule": "AGT-006",
+      "file": "benchmarks/cases.ts",
+      "reason": "Benchmark corpus: planted fail-open-gate sample lives inside a string literal"
+    }
+  ]
+}

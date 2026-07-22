@@ -517,6 +517,15 @@ npm run lint:fix       # biome check --write
 npm run audit          # runs: tsx src/cli/index.ts analyze .
 ```
 
+### False-positive benchmark
+
+```sh
+npm run bench          # planted issues must be found; field-tested FP traps must stay silent
+```
+
+A reproducible corpus (see `benchmarks/cases.ts`) that fails CI on any precision/recall
+regression — coverage gained at the cost of noise never merges.
+
 ---
 
 ## Language & platform support
