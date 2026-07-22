@@ -6,7 +6,7 @@
 
 **Static-analysis project auditor for code quality, security, and structural health.**
 
-PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across six dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
+PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across seven dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
 
 ---
 
@@ -395,6 +395,7 @@ Overall score = Σ(category_score × weight) / Σ(weights)
 Security      × 2.0
 Dependencies  × 1.5
 Tests         × 1.5
+Agentic       × 1.5
 Structure     × 1.0
 Docker        × 1.0
 Consistency   × 0.8
@@ -434,7 +435,7 @@ npm run test:watch     # vitest watch mode
 npm run test:coverage  # with coverage report
 ```
 
-The test suite has 185 tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
+The test suite has 400+ tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
 
 ### Lint
 
@@ -451,18 +452,38 @@ npm run audit          # runs: tsx src/cli/index.ts analyze .
 
 ---
 
+## Language & platform support
+
+PRISM inspects some ecosystems deeply and others only at the metadata level. The score reflects
+**what PRISM understands** — a high score on an unsupported stack means "nothing wrong in what
+was inspected", not "deep audit passed":
+
+| Area | Support |
+|---|---|
+| TypeScript / JavaScript | **Full** — all seven analyzers, import graph, dead-file and cycle detection |
+| Python | Partial — dependencies (`requirements.txt` pinning) and basic structure |
+| Docker / Compose | Full — Dockerfile and docker-compose checks |
+| Secrets / entropy | Language-agnostic — any text file |
+| Monorepos | Partial — analyzed as one tree; per-package scoring not yet separated |
+| Dynamic imports | Limited — `import()` with non-literal arguments is not resolved in the graph |
+| Generated / vendored code | Excluded by the file-context classifier |
+| Other languages (Rust, Java, Go…) | Metadata and structure only — no language-aware analysis |
+
+---
+
 ## Roadmap
 
 | Phase | Status | Description |
 |---|---|---|
-| **Fase 1** — Static analysis CLI | **Done** | 6 analyzers, weighted scoring, JSON output, CI exit codes |
-| **Fase 2** — LLM triage | **Current (v1.0.0)** | `--ai` layer: LLM judges each finding real/false-positive/uncertain in context |
-| **Fase 2.1+** — More intelligence | Planned | Executive summary, remediation guidance, AI re-scoring, standalone `triage` command |
-| **Fase 3** — HTML/PDF reports | Planned | Self-contained report files |
-| **Fase 4** — Dashboard + multi-input | Planned | Web dashboard, GitHub clone input, `.zip` upload |
+| **Fase 1** — Static analysis CLI | **Done** | 7 analyzers, weighted scoring, JSON/CLI output, CI exit codes |
+| **Fase 2** — LLM triage | **Done** | `--ai`: triage + adversarial re-check + N-model vote, remediation guide, executive summary, standalone `triage` |
+| **Fase 3** — Reports & outputs | **Done** | Self-contained HTML, JUnit XML, SARIF 2.1.0 |
+| **Fase 4** — Dashboard + multi-input | **Done** | Local dashboard, git URL input, `.zip` input |
+| **Fase 5** — Agent-ready | **Done (v1.0.0)** | Exit-code contract, `diff`, `finding get`, `agent install`, quality/new-code gates |
+| **Next** | Planned | Config file (`prism.config.json`) + `prism init`, justified suppressions with expiry, public rule catalog, reproducible FP benchmark, more agentic checks |
 
 ---
 
 ## License
 
-UNLICENSED — proprietary, LatenciaTech.
+[MIT](LICENSE) — © 2026 LatenciaTech (Spain).
