@@ -9,6 +9,7 @@ import type {
   CategoryScore,
   Finding,
   FileReader,
+  SuppressedFinding,
 } from './types.js';
 import type { LLMClient } from '../ai/types.js';
 import { applyAiTriage } from '../ai/run.js';
@@ -100,7 +101,7 @@ export async function runAudit(
     ? allAnalyzers.filter((a) => config.analyzers!.includes(a.category))
     : allAnalyzers;
 
-  const results: AnalyzerResult[] = [];
+  let results: AnalyzerResult[] = [];
 
   for (const analyzer of analyzersToRun) {
     onProgress?.(`Running ${analyzer.name} analyzer...`);
@@ -126,6 +127,20 @@ export async function runAudit(
         summary: `Analyzer failed: ${error instanceof Error ? error.message : 'Unknown'}`,
       });
     }
+  }
+
+  // Phase 3.5: Justified suppressions — silence accepted findings BEFORE
+  // scoring, fingerprints, gates, and AI triage (no tokens spent judging a
+  // finding the human already ruled on).
+  let suppressed: SuppressedFinding[] = [];
+  let suppressionWarnings: string[] = [];
+  if (config.suppressions && config.suppressions.length > 0) {
+    const { applySuppressions } = await import('./suppressions.js');
+    const outcome = applySuppressions(results, config.suppressions);
+    results = outcome.results;
+    suppressed = outcome.suppressed;
+    suppressionWarnings = outcome.warnings;
+    if (suppressed.length > 0) onProgress?.(`Suppressed ${suppressed.length} finding(s) by config`);
   }
 
   // Phase 4: Calculate overall score (weighted average)
@@ -173,6 +188,8 @@ export async function runAudit(
     findings: allFindings,
     projectMeta: scan.meta,
     prismVersion: PRISM_VERSION,
+    ...(suppressed.length > 0 ? { suppressed } : {}),
+    ...(suppressionWarnings.length > 0 ? { suppressionWarnings } : {}),
   };
 
   onProgress?.(`Audit complete: ${overallScore}/10 · ${allFindings.length} findings · ${report.durationMs}ms`);

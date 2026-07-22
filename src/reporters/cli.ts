@@ -48,6 +48,18 @@ export function renderCliReport(report: AuditReport): void {
   for (const r of report.aiRemediation ?? []) fixByKey.set(r.findingKey, r);
   renderFindings(report.findings, verdictByKey, fixByKey);
 
+  if (report.suppressed && report.suppressed.length > 0) {
+    console.log(
+      chalk.dim(
+        `  ${report.suppressed.length} finding${report.suppressed.length === 1 ? '' : 's'} suppressed by config:`,
+      ),
+    );
+    for (const s of report.suppressed) {
+      console.log(chalk.dim(`    · ${s.finding.id}${s.finding.file ? ` ${s.finding.file}` : ''} — ${s.reason}`));
+    }
+    console.log('');
+  }
+
   if (report.aiTriage) {
     const s = report.aiTriage.summary;
     console.log(

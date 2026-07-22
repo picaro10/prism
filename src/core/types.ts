@@ -93,6 +93,10 @@ export interface AuditReport {
   aiSummary?: string;
   /** AI fix proposals for confirmed-real findings (present only when run with --ai and remediation enabled). */
   aiRemediation?: Remediation[];
+  /** Findings silenced by justified suppressions (present only when any applied). */
+  suppressed?: SuppressedFinding[];
+  /** Human-facing notices from the suppression pass (expired/stale entries). */
+  suppressionWarnings?: string[];
 }
 
 /** Metadata about the project discovered by the scanner */
@@ -170,6 +174,32 @@ export interface Analyzer {
 export type FileReader = (relativePath: string) => Promise<string>;
 
 // ============================================================
+// Suppressions ("accepted findings")
+// ============================================================
+
+/**
+ * A justified suppression from prism.config.json: silences a specific rule
+ * (optionally narrowed to a file pattern) with a mandatory human reason and
+ * an optional expiry so exceptions don't outlive their justification.
+ */
+export interface Suppression {
+  /** Rule id to suppress (e.g. "SEC-ENV-VALUE"). */
+  rule: string;
+  /** Optional file pattern (gitignore syntax) relative to the project root. Omitted = the rule everywhere. */
+  file?: string;
+  /** Why this finding is accepted — required, this is the "justified" part. */
+  reason: string;
+  /** Optional YYYY-MM-DD date after which the suppression stops applying. */
+  expires?: string;
+}
+
+/** A finding removed from the report by a suppression, kept for transparency. */
+export interface SuppressedFinding {
+  finding: Finding;
+  reason: string;
+}
+
+// ============================================================
 // Engine config
 // ============================================================
 
@@ -207,4 +237,6 @@ export interface PrismConfig {
   aiRemediate?: boolean;
   /** Use canned AI responses instead of a real provider — no network, no API key. */
   aiDryRun?: boolean;
+  /** Justified suppressions (from prism.config.json) applied before scoring/gates/AI. */
+  suppressions?: Suppression[];
 }

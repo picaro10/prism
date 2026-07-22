@@ -11,7 +11,7 @@ import { resolveTarget, isGitUrl, type ResolvedTarget } from '../core/input.js';
 import { applyAiTriage } from '../ai/run.js';
 import { renderCliReport } from '../reporters/cli.js';
 import { writeJsonReport } from '../reporters/json.js';
-import type { AnalysisCategory, PrismConfig, AuditReport, FileReader } from '../core/types.js';
+import type { PrismConfig, AuditReport, FileReader } from '../core/types.js';
 
 // Load a .env from the current working directory if present (zero-dep, Node 20.12+).
 // This is the operator's .env (cwd), NOT the analyzed project's — we never load
@@ -81,27 +81,14 @@ program
   .option('--dry-run', 'Run the AI layer with canned responses — no network, no API key (demos/tests)', false)
   .option('--junit <path>', 'Also write a JUnit XML report (findings as failed test cases) for CI')
   .option('--sarif <path>', 'Also write a SARIF 2.1.0 report (for GitHub Code Scanning, VS Code, etc.)')
-  .action(async (target: string, options: Record<string, string | boolean>) => {
+  .option('--config <path>', 'Explicit config file (default: prism.config.json / .prismrc.json in the target root)')
+  .option('--no-config', 'Ignore any config file')
+  .action(async (target: string, options: Record<string, string | boolean>, command: Command) => {
     const targetStr = String(target);
 
     // Local targets (paths and .zip files) must exist; git URLs are validated by the clone.
     if (!isGitUrl(targetStr) && !existsSync(resolve(targetStr))) {
       console.error(chalk.red(`\n  ✗ Path not found: ${resolve(targetStr)}\n`));
-      process.exit(EXIT.USAGE);
-    }
-
-    // Validate --min-score early (usage error before doing any work).
-    const minScore = options.minScore !== undefined ? Number(String(options.minScore)) : DEFAULT_MIN_SCORE;
-    if (!Number.isFinite(minScore) || minScore < 0 || minScore > 10) {
-      console.error(chalk.red(`\n  ✗ --min-score must be a number between 0 and 10 (got: ${options.minScore})\n`));
-      process.exit(EXIT.USAGE);
-    }
-
-    // Validate --fail-on severity if provided.
-    const { SEVERITIES } = await import('../core/quality-gate.js');
-    const failOn = options.failOn ? String(options.failOn) : undefined;
-    if (failOn && !SEVERITIES.includes(failOn as (typeof SEVERITIES)[number])) {
-      console.error(chalk.red(`\n  ✗ --fail-on must be one of: ${SEVERITIES.join(', ')} (got: ${failOn})\n`));
       process.exit(EXIT.USAGE);
     }
 
@@ -128,14 +115,75 @@ program
     }
     const absolutePath = resolved.path;
 
+    // Load the persistent config file (prism.config.json / .prismrc.json).
+    // Explicit --config always wins; --no-config skips discovery. Discovery
+    // only trusts LOCAL targets: a cloned/extracted third-party repo must not
+    // get to pick its own gates or suppress its own findings.
+    const { loadConfigFile, resolveEffectiveOptions, CONFIG_FILENAMES } = await import('../core/config-file.js');
+    let fileConfig: import('../core/config-file.js').PrismFileConfig | null = null;
+    let fileConfigPath: string | undefined;
+    if (options.config !== false) {
+      try {
+        if (typeof options.config === 'string') {
+          const loaded = loadConfigFile(process.cwd(), options.config);
+          fileConfig = loaded?.config ?? null;
+          fileConfigPath = loaded?.path;
+        } else if (resolved.source === 'local') {
+          const loaded = loadConfigFile(absolutePath);
+          fileConfig = loaded?.config ?? null;
+          fileConfigPath = loaded?.path;
+        } else if (CONFIG_FILENAMES.some((name) => existsSync(join(resolved.path, name)))) {
+          console.error(
+            chalk.dim(
+              '  A config file inside the cloned/extracted target was ignored (remote targets cannot set their own gates); pass --config to use one.',
+            ),
+          );
+        }
+      } catch (err) {
+        console.error(chalk.red(`\n  ✗ ${err instanceof Error ? err.message : 'could not load config file'}\n`));
+        process.exit(EXIT.USAGE);
+      }
+    }
+
+    // Effective options: explicit CLI flag > config file > built-in default.
+    const isCliSet = (name: string): boolean => command.getOptionValueSource(name) === 'cli';
+    const eff = resolveEffectiveOptions(fileConfig, options, isCliSet);
+
+    // Validate the effective values (CLI-origin ones are unchecked strings; the
+    // file side was already schema-validated, so these double as flag checks).
+    const minScore = eff.minScore;
+    if (!Number.isFinite(minScore) || minScore < 0 || minScore > 10) {
+      console.error(chalk.red(`\n  ✗ --min-score must be a number between 0 and 10 (got: ${options.minScore})\n`));
+      process.exit(EXIT.USAGE);
+    }
+    const { SEVERITIES } = await import('../core/quality-gate.js');
+    const failOn = eff.failOn;
+    if (failOn && !SEVERITIES.includes(failOn)) {
+      console.error(chalk.red(`\n  ✗ --fail-on must be one of: ${SEVERITIES.join(', ')} (got: ${failOn})\n`));
+      process.exit(EXIT.USAGE);
+    }
+    // An unknown category (e.g. a typo, or an analyzer NAME like "secrets"
+    // instead of its category "security") would otherwise silently run zero
+    // analyzers and report a false 0/10.
+    if (eff.categories) {
+      const unknown = eff.categories.filter(
+        (c) => !ANALYZER_CATEGORIES.includes(c as (typeof ANALYZER_CATEGORIES)[number]),
+      );
+      if (unknown.length > 0) {
+        console.error(
+          chalk.red(
+            `\n  ✗ Unknown --only categor${unknown.length > 1 ? 'ies' : 'y'}: ${unknown.join(', ')}` +
+              `\n    Valid categories: ${ANALYZER_CATEGORIES.join(', ')}\n`,
+          ),
+        );
+        process.exit(EXIT.USAGE);
+      }
+    }
+
     // Fail fast on --ai without the right key, before spending the static analysis.
     // --dry-run needs no key (canned responses), so skip the check for it.
-    if (options.ai && !options.dryRun) {
-      const provider = options.aiProvider
-        ? String(options.aiProvider)
-        : process.env.ANTHROPIC_API_KEY
-          ? 'anthropic'
-          : 'openrouter';
+    if (eff.ai && !options.dryRun) {
+      const provider = eff.aiProvider ?? (process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openrouter');
       const keyVar = provider === 'openrouter' ? 'OPENROUTER_API_KEY' : 'ANTHROPIC_API_KEY';
       if (!process.env[keyVar]) {
         console.error(
@@ -147,44 +195,22 @@ program
       }
     }
 
-    // Parse + validate the categories filter. An unknown value (e.g. a typo, or
-    // an analyzer NAME like "secrets" instead of its category "security") would
-    // otherwise silently run zero analyzers and report a false 0/10.
-    const onlyStr = String(options.only || '');
-    let analyzers: AnalysisCategory[] | undefined;
-    if (onlyStr) {
-      const requested = onlyStr
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const unknown = requested.filter((c) => !ANALYZER_CATEGORIES.includes(c as (typeof ANALYZER_CATEGORIES)[number]));
-      if (unknown.length > 0) {
-        console.error(
-          chalk.red(
-            `\n  ✗ Unknown --only categor${unknown.length > 1 ? 'ies' : 'y'}: ${unknown.join(', ')}` +
-              `\n    Valid categories: ${ANALYZER_CATEGORIES.join(', ')}\n`,
-          ),
-        );
-        process.exit(EXIT.USAGE);
-      }
-      analyzers = requested as AnalysisCategory[];
-    }
-
     const config: PrismConfig = {
       targetPath: absolutePath,
-      analyzers,
-      output: String(options.output || 'cli') as PrismConfig['output'],
-      outputPath: options.file ? String(options.file) : undefined,
-      verbose: Boolean(options.verbose),
-      ai: Boolean(options.ai || options.dryRun), // --dry-run implies running the AI layer (canned)
+      analyzers: eff.categories,
+      output: eff.output,
+      outputPath: eff.outputFile,
+      verbose: eff.verbose,
+      ai: Boolean(eff.ai || options.dryRun), // --dry-run implies running the AI layer (canned)
       aiDryRun: Boolean(options.dryRun),
-      aiModel: options.aiModel ? String(options.aiModel) : undefined,
-      aiProvider: options.aiProvider ? (String(options.aiProvider) as PrismConfig['aiProvider']) : undefined,
-      aiVerify: options.aiVerify !== false, // commander sets false only on --no-ai-verify
-      aiVoteModels: parseVoteModels(options.aiVote),
-      aiSummary: options.aiSummary !== false, // commander sets false only on --no-ai-summary
-      aiRemediate: options.aiRemediate !== false, // commander sets false only on --no-ai-remediate
-      aiConcurrency: options.aiConcurrency ? Number(String(options.aiConcurrency)) : undefined,
+      aiModel: eff.aiModel,
+      aiProvider: eff.aiProvider,
+      aiVerify: eff.aiVerify,
+      aiVoteModels: eff.aiVoteModels,
+      aiSummary: eff.aiSummary,
+      aiRemediate: eff.aiRemediate,
+      aiConcurrency: eff.aiConcurrency,
+      suppressions: eff.suppressions,
     };
 
     // When JSON goes to stdout, stdout must be ONLY the JSON (so it can be piped
@@ -196,6 +222,9 @@ program
       console.log(chalk.bold.white('  🔍 PRISM'));
       console.log(chalk.dim('  AI-powered project auditor by LatenciaTech'));
       console.log('');
+    }
+    if (fileConfigPath) {
+      console.error(chalk.dim(`  Using config ${fileConfigPath}`));
     }
 
     // Dispose of any temporary clone/extraction, then exit. process.exit
@@ -238,6 +267,12 @@ program
         console.error(chalk.yellow(`\n  ⚠ ${aiMessage ?? 'AI triage did not run.'}`));
       }
 
+      // Expired/stale suppression notices — the whole point of `expires` is
+      // that exceptions resurface instead of rotting silently. Stderr only.
+      for (const w of report.suppressionWarnings ?? []) {
+        console.error(chalk.yellow(`  ⚠ ${w}`));
+      }
+
       // Output results
       if (config.output === 'json') {
         if (config.outputPath) {
@@ -258,15 +293,15 @@ program
 
       // Optional JUnit sidecar (independent of --output). To stderr so it never
       // mixes into a JSON document on stdout.
-      if (options.junit) {
+      if (eff.junit) {
         const { writeJunitReport } = await import('../reporters/junit.js');
-        await writeJunitReport(report, String(options.junit));
-        console.error(chalk.green(`  ✓ JUnit report saved to ${options.junit}`));
+        await writeJunitReport(report, eff.junit);
+        console.error(chalk.green(`  ✓ JUnit report saved to ${eff.junit}`));
       }
-      if (options.sarif) {
+      if (eff.sarif) {
         const { writeSarifReport } = await import('../reporters/sarif.js');
-        await writeSarifReport(report, String(options.sarif));
-        console.error(chalk.green(`  ✓ SARIF report saved to ${options.sarif}`));
+        await writeSarifReport(report, eff.sarif);
+        console.error(chalk.green(`  ✓ SARIF report saved to ${eff.sarif}`));
       }
 
       // Non-blocking update check (once/24h, opt-out via PRISM_NO_UPDATE_CHECK).
@@ -289,15 +324,15 @@ program
       // findings NOT already in the baseline (old debt doesn't gate; new code
       // must not add). --min-score still applies to the whole project's score.
       let gateReport = report;
-      if (options.baseline) {
+      if (eff.baseline) {
         try {
           const { resolveBaselineReport } = await import('../core/baseline.js');
           const { diffByFingerprint, reportOfFindings } = await import('../core/new-code-gate.js');
-          const baseline = await resolveBaselineReport(String(options.baseline), absolutePath);
+          const baseline = await resolveBaselineReport(eff.baseline, absolutePath);
           const d = diffByFingerprint(baseline, report);
           console.error(
             chalk.dim(
-              `\n  Baseline '${options.baseline}': ${report.findings.length} total · ${d.existingCount} existing · ` +
+              `\n  Baseline '${eff.baseline}': ${report.findings.length} total · ${d.existingCount} existing · ` +
                 `${chalk.bold(`${d.newFindings.length} new`)} · ${d.fixedFindings.length} fixed`,
             ),
           );
@@ -314,9 +349,9 @@ program
       const { evaluateQualityGate } = await import('../core/quality-gate.js');
       const gate = evaluateQualityGate(gateReport, {
         minScore,
-        failOn: failOn as import('../core/types.js').Severity | undefined,
-        maxCritical: options.maxCritical !== undefined ? Number(String(options.maxCritical)) : undefined,
-        maxHigh: options.maxHigh !== undefined ? Number(String(options.maxHigh)) : undefined,
+        failOn,
+        maxCritical: eff.maxCritical,
+        maxHigh: eff.maxHigh,
       });
       if (!gate.passed) {
         console.error(chalk.red('\n  ✗ Quality gate failed:'));
@@ -594,6 +629,59 @@ program
     }
     const warned = checks.some((c) => c.status === 'warn');
     console.log(warned ? chalk.yellow('  Usable, with warnings above.\n') : chalk.green('  All good.\n'));
+    process.exit(EXIT.OK);
+  });
+
+program
+  .command('init')
+  .description('Create a prism.config.json — interactive wizard on a TTY, sensible defaults otherwise')
+  .option('-d, --dir <path>', 'Directory to write the config into', '.')
+  .option('-y, --yes', 'Skip the wizard and write the default config', false)
+  .option('--force', 'Overwrite an existing config file', false)
+  .action(async (options: Record<string, string | boolean>) => {
+    const dir = resolve(String(options.dir ?? '.'));
+    if (!existsSync(dir)) {
+      console.error(chalk.red(`\n  ✗ Directory not found: ${dir}\n`));
+      process.exit(EXIT.USAGE);
+    }
+    const outPath = join(dir, 'prism.config.json');
+    if (existsSync(outPath) && !options.force) {
+      console.error(chalk.red(`\n  ✗ ${outPath} already exists. Use --force to overwrite.\n`));
+      process.exit(EXIT.USAGE);
+    }
+
+    const { defaultFileConfig, buildConfigViaWizard, renderConfigJson } = await import('./init.js');
+
+    let config: import('../core/config-file.js').PrismFileConfig;
+    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY && !options.yes);
+    if (interactive) {
+      console.log('');
+      console.log(chalk.bold.white('  🔍 PRISM init'));
+      console.log(chalk.dim('  Enter accepts the [default]. The file is prism.config.json; flags always override it.'));
+      console.log('');
+      const { createInterface } = await import('node:readline/promises');
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        config = await buildConfigViaWizard(async (q, def) =>
+          rl.question(`  ${q}${def ? chalk.dim(` [${def}]`) : ''}: `),
+        );
+      } finally {
+        rl.close();
+      }
+    } else {
+      config = defaultFileConfig();
+    }
+
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(outPath, renderConfigJson(config), 'utf-8');
+    console.log('');
+    console.log(chalk.green(`  ✓ Wrote ${outPath}`));
+    console.log(chalk.dim('  From now on `prism analyze .` uses it; any CLI flag still wins.'));
+    console.log(
+      chalk.dim(
+        '  Accept a reviewed finding with a justified suppression: {"rule": "SEC-001", "file": "tests/**", "reason": "why", "expires": "YYYY-MM-DD"}\n',
+      ),
+    );
     process.exit(EXIT.OK);
   });
 
