@@ -50,3 +50,53 @@ jobs:
           --min-score 8.5
           --fail-on critical
           --junit prism-junit.xml
+
+  # Verify the artifact the USER receives, not just the source tree: pack the
+  # tarball exactly as `npm publish` would, install it into a clean project,
+  # and run the binary from there. This is what would have caught the
+  # missing-fixture / broken-bin class of bugs before a release did.
+  package:
+    name: package smoke (npm pack → install → run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack the publishable tarball
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          echo "TARBALL=$(ls "$RUNNER_TEMP"/latenciatech-prism-*.tgz)" >> "$GITHUB_ENV"
+
+      - name: Install the tarball into a clean project
+        run: |
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y >/dev/null
+          npm install "$TARBALL"
+
+      - name: Run the installed binary (doctor + init + analyze)
+        run: |
+          cd "$RUNNER_TEMP/consumer"
+          npx prism --version
+          npx prism doctor
+          mkdir -p sample/src
+          echo 'export const ok = 1;' > sample/src/index.ts
+          echo '{"name":"sample","version":"1.0.0"}' > sample/package.json
+          npx prism init --yes --dir sample
+          # The JSON contract, isolated from the config the init step just wrote:
+          npx prism analyze sample --no-config --min-score 0 -o json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s);if(typeof r.overallScore!=='number')process.exit(1);console.log('score',r.overallScore)})"
+          # And the config DOES govern the run: init wrote failOn=critical, the
+          # test-less sample trips TST-001 (critical) → exactly exit 1.
+          set +e; npx prism analyze sample --min-score 0 >/dev/null; code=$?; set -e
+          if [ "$code" -ne 1 ]; then echo "expected the config failOn gate to exit 1, got $code"; exit 1; fi
+          echo "config gate fired as expected (exit 1)"
