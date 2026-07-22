@@ -94,6 +94,8 @@ zip-slip protection). Temporary copies are deleted after the audit unless `--kee
 | `--dry-run` | false | Run the AI layer with canned responses — no network, no key |
 | `--keep` | false | Keep the temporary clone/extraction instead of deleting it |
 | `-v, --verbose` | false | Show per-file progress during the audit |
+| `--config <path>` | auto | Explicit config file (default: discover `prism.config.json` / `.prismrc.json` in the target root) |
+| `--no-config` | — | Ignore any config file for this run |
 
 **Examples:**
 
@@ -173,6 +175,67 @@ prism analyze . --junit prism-junit.xml   # findings show up as failed tests in 
 **Other behavior:** interrupting a run with Ctrl-C cleans up any temporary clone/extraction
 before exiting (code `130`). PRISM checks npm for a newer version at most once per 24h (only the
 package name is sent); set `PRISM_NO_UPDATE_CHECK=1` to disable it.
+
+### `init` — create a persistent config
+
+```
+prism init [--dir <path>] [--yes] [--force]
+```
+
+An interactive wizard (on a TTY) that asks the decisions worth making once — score threshold,
+severity gate, analyzers, AI provider, output format — and writes a `prism.config.json`. From
+then on `prism analyze .` needs no flags. `--yes` (or a non-TTY stdin, so it never blocks CI)
+skips the wizard and writes sensible defaults; `--force` overwrites an existing file.
+
+### Configuration file
+
+`prism analyze` discovers `prism.config.json` (or `.prismrc.json`) at the analyzed project's
+root. Every key mirrors a CLI flag, and precedence is always: **explicit CLI flag > config file
+> built-in default**.
+
+```json
+{
+  "minScore": 8,
+  "categories": ["security", "dependencies", "tests", "structure", "docker"],
+  "failOn": "critical",
+  "baseline": "origin/main",
+  "ai": {
+    "enabled": true,
+    "provider": "openrouter",
+    "model": "anthropic/claude-sonnet-4.6",
+    "verify": true,
+    "remediate": true
+  },
+  "output": { "format": "html", "file": "reports/prism.html", "sarif": "prism.sarif" },
+  "suppressions": [
+    {
+      "rule": "SEC-STRIPE-SK",
+      "file": "tests/fixtures/**",
+      "reason": "Fake key used to test the detector itself",
+      "expires": "2027-01-01"
+    }
+  ]
+}
+```
+
+The schema is **strict**: an unknown key (a typo like `minscore`) is a usage error, not a
+silently ignored setting — a misspelled gate must not become a disabled gate.
+
+**Justified suppressions.** `.prismignore` removes whole paths from analysis; a suppression
+accepts **one reviewed finding** and leaves everything else armed. Each entry names a rule id,
+an optional file pattern (gitignore syntax), a **mandatory `reason`** — that's what makes it
+justified — and an optional `expires` date so exceptions can't quietly outlive their
+justification. Suppressed findings are removed from the report, the score, the quality gates,
+and the AI triage (no tokens spent judging what a human already ruled on), but they are
+**listed in the output with their reasons** — transparency, not a black hole. An expired entry
+stops applying and warns; an entry that matches nothing warns as stale. The score refund uses a
+standard per-severity table (critical 1.5 · high 1.0 · medium 0.5 · low 0.2), an approximation
+by design since each analyzer scores with its own penalties.
+
+**Trust boundary.** Config discovery only applies to **local** targets. A config file inside a
+cloned git URL or extracted `.zip` is ignored (with a notice): a third-party repo you're
+auditing doesn't get to pick its own gates or suppress its own findings. Pass `--config <path>`
+to opt in explicitly.
 
 ### `scan` — quick metadata
 
@@ -480,7 +543,8 @@ was inspected", not "deep audit passed":
 | **Fase 3** — Reports & outputs | **Done** | Self-contained HTML, JUnit XML, SARIF 2.1.0 |
 | **Fase 4** — Dashboard + multi-input | **Done** | Local dashboard, git URL input, `.zip` input |
 | **Fase 5** — Agent-ready | **Done (v1.0.0)** | Exit-code contract, `diff`, `finding get`, `agent install`, quality/new-code gates |
-| **Next** | Planned | Config file (`prism.config.json`) + `prism init`, justified suppressions with expiry, public rule catalog, reproducible FP benchmark, more agentic checks |
+| **Fase 6** — Persistent config | **Done** | `prism.config.json` + `prism init` wizard, justified suppressions with reasons and expiry |
+| **Next** | Planned | Public rule catalog, reproducible FP benchmark, more agentic checks (MCP exposure, destructive tools without confirmation, prompt injection, fail-open fallbacks) |
 
 ---
 

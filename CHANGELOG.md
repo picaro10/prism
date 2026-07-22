@@ -6,6 +6,22 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Persistent config file** — `prism.config.json` / `.prismrc.json` at the target root, with a
+  strict schema (unknown keys are a usage error, so a typo can't silently disable a gate).
+  Every key mirrors a CLI flag; precedence is explicit CLI flag > config file > default.
+  Discovery only trusts **local** targets — a cloned/extracted third-party repo can't pick its
+  own gates (`--config` opts in explicitly, `--no-config` disables discovery).
+- **`prism init`** — interactive wizard (TTY only; `--yes`/non-TTY writes defaults, never
+  blocks CI) that asks the decisions worth making once and writes `prism.config.json`.
+- **Justified suppressions** — accept one reviewed finding without excluding the file: rule id +
+  optional gitignore-style file pattern + **mandatory reason** + optional `expires` date.
+  Applied before scoring/gates/AI triage; suppressed findings stay listed in the output with
+  their reasons; expired entries resurface with a warning, stale entries warn too.
+- **CI package smoke** — `npm pack` → install the tarball into a clean project → run
+  `doctor`/`init`/`analyze` from the installed binary. Verifies the artifact users receive,
+  not just the source tree.
+- **README**: honest language/platform support matrix; roadmap aligned with shipped reality;
+  the footer no longer contradicts the MIT license.
 - **Agentic analyzer** — a new audit dimension for AI-agent code that mainstream analyzers
   (Semgrep, Sonar) don't model: `AGT-001` shell commands built with interpolation/concatenation
   (agent command injection; `execFile` is the safe pattern), `AGT-002` environment secrets
