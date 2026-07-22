@@ -4,7 +4,7 @@
   "description": "AI-powered project auditor — static analysis + LLM intelligence",
   "type": "module",
   "bin": {
-    "prism": "./dist/cli/index.js"
+    "prism": "dist/cli/index.js"
   },
   "scripts": {
     "dev": "tsx src/cli/index.ts",
