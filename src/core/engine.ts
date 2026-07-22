@@ -23,7 +23,7 @@ import { TestsAnalyzer } from '../analyzers/tests.js';
 import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
 import { AgenticAnalyzer } from '../analyzers/agentic.js';
 
-const PRISM_VERSION = '1.0.0';
+const PRISM_VERSION = '1.1.0';
 
 /** Cap on a single file read — beyond this a "source" file is pathological. */
 const MAX_READ_BYTES = 15 * 1024 * 1024;

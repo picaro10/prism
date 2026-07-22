@@ -35,7 +35,7 @@ describe('formatSarifReport', () => {
     );
     expect(doc.version).toBe('2.1.0');
     expect(doc.runs[0].tool.driver.name).toBe('PRISM');
-    expect(doc.runs[0].tool.driver.version).toBe('1.0.0');
+    expect(doc.runs[0].tool.driver.version).toBe('1.1.0');
     const result = doc.runs[0].results[0];
     expect(result.ruleId).toBe('SEC-1');
     expect(result.level).toBe('error'); // critical → error

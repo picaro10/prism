@@ -3,7 +3,9 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
-## [Unreleased]
+## [1.1.0] — 2026-07-22
+
+First release published to npm (`@latenciatech/prism`).
 
 ### Added
 - **Persistent config file** — `prism.config.json` / `.prismrc.json` at the target root, with a
