@@ -24,6 +24,10 @@ PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a loc
 
 The overall score is a weighted average of per-category scores, each on a 0–10 scale.
 
+**Full rule catalog:** every rule id, severity, and its known false-positive traps are documented
+in [`docs/rules/`](docs/rules/README.md). A test keeps the catalog in sync with the analyzers —
+an undocumented rule fails CI.
+
 ---
 
 ## Requirements

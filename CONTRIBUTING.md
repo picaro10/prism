@@ -37,6 +37,44 @@ PRISM's own quality score (or introduces a critical finding) fails the build.
   `.js` extensions, Biome formatting. Findings and messages are in English.
 - Open an issue first for anything large or design-changing.
 
+## Adding a detection rule
+
+The most common contribution. The checklist a rule PR must satisfy:
+
+1. **Open a [new-rule proposal](.github/ISSUE_TEMPLATE/new-rule.md) first** with a vulnerable
+   example, a correct example, and the false-positive traps you already thought of.
+2. **Pick the ID**: `<CAT>-<NNN>` in the category's namespace (`SEC`/`DEP`/`TST`/`STR`/`DOC`/
+   `CON`/`AGT` — see [docs/rules](docs/rules/README.md)). IDs are stable public API: reports,
+   suppressions, SARIF, and baselines key on them. Never renumber or reuse an ID.
+3. **Implement in the category's analyzer** (`src/analyzers/<category>.ts`) as a small exported
+   pure function (`detectX(content): number[]` returning 1-based lines) the analyzer loops
+   over — that's what makes it unit-testable. Emit a `Finding` with `id`, `severity`, `title`,
+   `description`, actionable `suggestion`, `file`, `line`.
+4. **Regex vs parser:** line-level regex heuristics are the norm here (fast, dependency-free);
+   they must carry the **anti-self-detection guard** (skip comments and regex/pattern-definition
+   lines — see `isPatternDefinition` in `src/analyzers/agentic.ts`). If a rule genuinely needs
+   cross-file resolution, look at the import-graph utilities (`src/utils/import-graph.ts`,
+   used by `STR-012`/`STR-013`) before reaching for a parser dependency.
+5. **Tests, both directions:** every vulnerable example fires; every correct/legitimate example
+   does NOT. FP tests are not optional — they are the point.
+6. **Document it** in `docs/rules/<category>.md` (a sync test fails CI if you don't), including
+   its known false-positive traps and, when relevant, a sensible suppression example.
+7. **Dogfood must stay green:** `npm run audit` — if your rule flags PRISM itself, either PRISM
+   has the problem (fix it) or your rule has one (fix that).
+
+**Severity guide:** `critical` = exploitable secret/vuln right now · `high` = a real risk with a
+clear failure path · `medium` = a risk that depends on context · `low` = hygiene · `info` =
+signal only, no score impact expected.
+
+## Validation before sending
+
+```sh
+npm run lint && npx tsc --noEmit && npm run test:coverage && npm run build && npm run audit
+```
+
+All five green locally = CI green (plus the package-smoke job, which verifies the packed
+tarball installs and runs).
+
 ## License
 
 By contributing you agree that your contributions are licensed under the
