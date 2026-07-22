@@ -22,8 +22,9 @@ import { DockerAnalyzer } from '../analyzers/docker.js';
 import { TestsAnalyzer } from '../analyzers/tests.js';
 import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
 import { AgenticAnalyzer } from '../analyzers/agentic.js';
+import { WorkflowAnalyzer } from '../analyzers/workflow.js';
 
-const PRISM_VERSION = '1.1.0';
+const PRISM_VERSION = '1.2.0';
 
 /** Cap on a single file read — beyond this a "source" file is pathological. */
 const MAX_READ_BYTES = 15 * 1024 * 1024;
@@ -37,6 +38,7 @@ export const ANALYZER_CATEGORIES = [
   'tests',
   'consistency',
   'agentic',
+  'workflow',
 ] as const;
 
 /** Weight each category contributes to the overall score */
@@ -48,6 +50,7 @@ const CATEGORY_WEIGHTS: Record<string, number> = {
   tests: 1.5,
   consistency: 0.8,
   agentic: 1.5, // AI-agent security risks weigh like tests/deps
+  workflow: 1.0, // CI/CD hygiene weighs like docker/structure
   architecture: 2.0, // Future: LLM-powered
 };
 
@@ -61,6 +64,7 @@ function createAnalyzers(): Analyzer[] {
     new TestsAnalyzer(),
     new ConsistencyAnalyzer(),
     new AgenticAnalyzer(),
+    new WorkflowAnalyzer(),
   ];
 }
 

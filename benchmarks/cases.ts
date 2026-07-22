@@ -86,6 +86,31 @@ export const CASES: BenchCase[] = [
     expect: { 'docker-compose.yml': ['DOC-020', 'DOC-022', 'DOC-023'] },
   },
 
+  {
+    name: 'tp-workflow-pwn-and-injection',
+    categories: ['workflow'],
+    files: {
+      'package.json': PACKAGE_JSON,
+      '.github/workflows/risky.yml': [
+        'on:',
+        '  pull_request_target:',
+        'permissions: write-all',
+        'concurrency: x',
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 10',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '        with:',
+        '          ref: ${{ github.event.pull_request.head.sha }}',
+        '      - run: echo "${{ github.event.pull_request.title }}"',
+        '',
+      ].join('\n'),
+    },
+    expect: { '.github/workflows/risky.yml': ['WFL-001', 'WFL-002', 'WFL-005'] },
+  },
+
   // ── FP traps: files that once fooled a rule (or were engineered not to) ──
   {
     name: 'trap-placeholder-db-credentials',
@@ -172,6 +197,38 @@ export const CASES: BenchCase[] = [
       ].join('\n'),
     },
     expect: { 'docker-compose.yml': [] },
+  },
+  {
+    name: 'trap-hygienic-workflow',
+    categories: ['workflow'],
+    // A workflow doing everything right (SHA-pinned third-party action,
+    // least-privilege permissions, concurrency, timeout, cache) must be silent.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'package-lock.json': '{}',
+      '.github/workflows/ci.yml': [
+        'on:',
+        '  push:',
+        'permissions:',
+        '  contents: read',
+        'concurrency:',
+        '  group: ci',
+        '  cancel-in-progress: true',
+        'jobs:',
+        '  test:',
+        '    runs-on: ubuntu-latest',
+        '    timeout-minutes: 15',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - uses: actions/setup-node@v4',
+        '        with:',
+        '          cache: npm',
+        `      - uses: vendor/audited-action@${'b'.repeat(40)}`,
+        '      - run: npm ci && npm test',
+        '',
+      ].join('\n'),
+    },
+    expect: { '.github/workflows/ci.yml': [] },
   },
   {
     name: 'trap-integration-test-without-sut-import',

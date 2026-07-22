@@ -15,7 +15,10 @@ function ruleIdsInSource(): string[] {
   const ids = new Set<string>();
   for (const file of sources) {
     const src = readFileSync(file, 'utf-8');
+    // Two shapes: inline `id: 'XXX-NNN'` literals, and `finding('XXX-NNN', ...)`
+    // helper calls (the workflow analyzer's style).
     for (const m of src.matchAll(/id: '([A-Z]{2,4}-[A-Z0-9-]+)'/g)) ids.add(m[1]);
+    for (const m of src.matchAll(/finding\(\s*'([A-Z]{2,4}-[A-Z0-9-]+)'/g)) ids.add(m[1]);
   }
   return [...ids].sort();
 }
@@ -45,7 +48,10 @@ describe('rule catalog (docs/rules) stays in sync with the analyzers', () => {
     expect(stale).toEqual([]);
   });
 
-  it('sanity: the extractor sees a healthy number of rules', () => {
-    expect(ruleIdsInSource().length).toBeGreaterThan(50);
+  it('sanity: the extractor sees a healthy number of rules, both declaration styles', () => {
+    const ids = ruleIdsInSource();
+    expect(ids.length).toBeGreaterThan(60);
+    expect(ids).toContain('SEC-STRIPE-SK'); // inline `id:` style
+    expect(ids).toContain('WFL-001'); // finding(...) helper style
   });
 });

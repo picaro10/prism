@@ -42,7 +42,7 @@ function parseVoteModels(value: string | boolean | undefined): string[] | undefi
 const EXIT = { OK: 0, FINDINGS: 1, USAGE: 2, INTERNAL: 3 } as const;
 
 const DEFAULT_MIN_SCORE = 6;
-const CLI_VERSION = '1.1.0';
+const CLI_VERSION = '1.2.0';
 
 const program = new Command();
 

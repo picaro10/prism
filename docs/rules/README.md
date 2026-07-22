@@ -12,6 +12,7 @@ primary design constraint, and a rule you can't trust is worse than no rule.
 | [Tests](tests.md) | 1.5× | `TST-*` — existence, ratio, decorative tests |
 | [Structure](structure.md) | 1.0× | `STR-*` — layout, god files, circular imports, dead files |
 | [Docker](docker.md) | 1.0× | `DOC-*` — Dockerfile and docker-compose hygiene |
+| [Workflow](workflow.md) | 1.0× | `WFL-*` — GitHub Actions: pwn requests, script injection, dead triggers, fail-open gates |
 | [Consistency](consistency.md) | 0.8× | `CON-*` — naming, language and indentation consistency |
 
 Rule IDs are stable: reports, suppressions, SARIF output, and the baseline gate all key on them.

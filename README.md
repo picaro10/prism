@@ -6,7 +6,7 @@
 
 **Static-analysis project auditor for code quality, security, and structural health.**
 
-PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across seven dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
+PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across eight dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
 
 ---
 
@@ -20,7 +20,8 @@ PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a loc
 | **Structure** | 1.0× | README, `.gitignore`, linter config, `tsconfig`; flat-root dumps; excessive nesting; god files (`STR-011`: >400 / >600 / >900 / >1500 LOC with tiered severity); circular import dependencies (`STR-012`, via Tarjan SCC on the resolved import graph); dead files (`STR-013`: TS/JS source nothing reaches — counts type-only imports, tsconfig aliases, package.json refs, path strings in code/HTML/Dockerfiles/shell, shebang and convention entries; skips itself if a tsconfig is unparseable). |
 | **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0`. |
 | **Consistency** | 0.8× | Mixed file-naming conventions (kebab/snake/camel/pascal) within the same language; mixed natural language (Spanish + English identifiers in the same file); inconsistent indentation (tabs vs spaces). |
-| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell commands built with interpolation/concatenation (`AGT-001`, agent command injection — `execFile` is the safe pattern); environment secrets interpolated into an LLM prompt/message (`AGT-002`, credential leaking into model context). High-signal and conservative by design. |
+| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell injection in agent tools (`AGT-001`), secrets (`AGT-002`) and external content (`AGT-004`) in LLM prompts, destructive tools without confirmation (`AGT-003`), public MCP binds (`AGT-005`), fail-open security gates (`AGT-006`). High-signal and conservative by design. |
+| **Workflow** | 1.0× | GitHub Actions risks — pwn requests (`pull_request_target` + PR-head checkout), script injection from event data, unpinned third-party actions, missing/over-broad permissions, triggers filtering nonexistent branches (a CI that never runs), fail-open gates, missing timeouts/concurrency/caching. Cross-checked against the real repository, not just the YAML. |
 
 The overall score is a weighted average of per-category scores, each on a 0–10 scale.
 
@@ -465,6 +466,7 @@ Tests         × 1.5
 Agentic       × 1.5
 Structure     × 1.0
 Docker        × 1.0
+Workflow      × 1.0
 Consistency   × 0.8
 ```
 
@@ -539,6 +541,7 @@ was inspected", not "deep audit passed":
 | TypeScript / JavaScript | **Full** — all seven analyzers, import graph, dead-file and cycle detection |
 | Python | Partial — dependencies (`requirements.txt` pinning) and basic structure |
 | Docker / Compose | Full — Dockerfile and docker-compose checks |
+| GitHub Actions | Full — workflow risk analysis cross-checked against the repo (other CI systems: not yet) |
 | Secrets / entropy | Language-agnostic — any text file |
 | Monorepos | Partial — analyzed as one tree; per-package scoring not yet separated |
 | Dynamic imports | Limited — `import()` with non-literal arguments is not resolved in the graph |
@@ -557,7 +560,9 @@ was inspected", not "deep audit passed":
 | **Fase 4** — Dashboard + multi-input | **Done** | Local dashboard, git URL input, `.zip` input |
 | **Fase 5** — Agent-ready | **Done (v1.0.0)** | Exit-code contract, `diff`, `finding get`, `agent install`, quality/new-code gates |
 | **Fase 6** — Persistent config | **Done** | `prism.config.json` + `prism init` wizard, justified suppressions with reasons and expiry |
-| **Next** | Planned | Public rule catalog, reproducible FP benchmark, more agentic checks (MCP exposure, destructive tools without confirmation, prompt injection, fail-open fallbacks) |
+| **Fase 7** — Quality flywheel | **Done** | Public rule catalog (sync-tested), reproducible FP benchmark in CI, agentic checks AGT-003..006 |
+| **Fase 8** — Workflow Intelligence | **Done (v1.2.0)** | GitHub Actions analyzer (`WFL-*`): pwn requests, script injection, dead triggers, fail-open gates — cross-checked against the real repo |
+| **Next** | Planned | Wrap Semgrep as an optional analyzer (taint), finding lifecycle / quality profiles, more CI systems (GitLab CI) |
 
 ---
 

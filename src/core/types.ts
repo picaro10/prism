@@ -19,6 +19,7 @@ export type AnalysisCategory =
   | 'tests'
   | 'consistency'
   | 'agentic' // AI-agent code risks (tools, shell, secrets-in-prompt)
+  | 'workflow' // CI/CD workflow risks (GitHub Actions)
   | 'architecture'; // future: LLM-powered
 
 /** A single finding from an analyzer */

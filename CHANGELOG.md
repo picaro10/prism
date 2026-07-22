@@ -3,6 +3,30 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [1.2.0] — 2026-07-22
+
+**Workflow Intelligence** — the eighth audit dimension.
+
+### Added
+- **Workflow analyzer** (`WFL-*`, weight 1.0×) — CI/CD risks in GitHub Actions, deliberately
+  not an actionlint/zizmor rebuild: PRISM's angle is cross-checking the YAML against the
+  **actual repository**. Twelve rules: `WFL-001` pwn request (`pull_request_target` + PR-head
+  checkout, critical), `WFL-002` script injection from untrusted event data, `WFL-003`
+  unpinned third-party actions (aggregate penalty capped — one missing convention, not N
+  failures), `WFL-004`/`WFL-005` missing/over-broad permissions, `WFL-006` triggers filtering
+  **only branches that don't exist** (the workflow never runs — the exact bug this project
+  shipped v1.0.0 with; needs the repo, invisible to YAML linters), `WFL-007`/`WFL-008` missing
+  timeouts/concurrency, `WFL-009` fail-open gates (`continue-on-error` on checks), `WFL-010`
+  setup-node without cache despite a committed lockfile, `WFL-011` self-hosted runners on PR
+  triggers, `WFL-PARSE` unparseable YAML.
+- Local branch discovery without the git binary (`.git/refs/heads` + `packed-refs`) powering
+  the cross-checks.
+- Rule catalog page (`docs/rules/workflow.md`), benchmark cases (planted pwn-request/injection
+  workflow + hygienic-workflow FP trap), and — dogfood first — PRISM's own `ci.yml` fixed for
+  the three findings the analyzer raised against it (permissions, timeouts, concurrency).
+- New dependency: `yaml` (pure JS, zero transitive deps) — structural rules deserve a real
+  parser, not regex gymnastics.
+
 ## [1.1.0] — 2026-07-22
 
 First release published to npm (`@latenciatech/prism`).

@@ -6,10 +6,20 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege + no redundant runs + bounded jobs — the three findings
+# PRISM's own workflow analyzer (WFL-004/007/008) raised against this file.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +74,7 @@ jobs:
   package:
     name: package smoke (npm pack → install → run)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
