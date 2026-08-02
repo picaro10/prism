@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import AdmZip from 'adm-zip';
@@ -142,7 +142,9 @@ describe('cloneRepo', () => {
 describe('resolveTarget', () => {
   it('passes local paths through with a no-op cleanup', async () => {
     const r = await resolveTarget('/opt/prism');
-    expect(r).toMatchObject({ path: '/opt/prism', source: 'local' });
+    // resolve() the expectation too — on Windows '/opt/prism' resolves to
+    // '<drive>:\opt\prism', so the literal POSIX string would never match.
+    expect(r).toMatchObject({ path: resolve('/opt/prism'), source: 'local' });
     await r.cleanup(); // must not throw
   });
 });

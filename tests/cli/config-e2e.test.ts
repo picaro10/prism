@@ -9,9 +9,13 @@ const exec = promisify(execFile);
 const CLI = resolve(__dirname, '../../src/cli/index.ts');
 const ROOT = resolve(__dirname, '../..');
 
+// Spawn node with tsx's entry directly — execFile('npx', …) is ENOENT on
+// Windows (npx is npx.cmd there) and shell:true would change quoting rules.
+const TSX = resolve(__dirname, '../../node_modules/tsx/dist/cli.mjs');
+
 async function runExit(args: string[]): Promise<number> {
   try {
-    await exec('npx', ['tsx', CLI, ...args], { cwd: ROOT });
+    await exec(process.execPath, [TSX, CLI, ...args], { cwd: ROOT });
     return 0;
   } catch (err) {
     return (err as { code?: number }).code ?? -1;
