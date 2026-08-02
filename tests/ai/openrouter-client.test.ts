@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parseVerdicts, parseRemediations, OpenRouterLLMClient } from '../../src/ai/openrouter-client.js';
 
 describe('parseVerdicts', () => {
@@ -91,5 +91,83 @@ describe('OpenRouterLLMClient', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('OpenRouterLLMClient — HTTP layer (mocked fetch)', () => {
+  const unit = {
+    file: 'src/a.ts',
+    content: 'const x = 1;',
+    findings: [
+      {
+        id: 'SEC-001',
+        category: 'security',
+        severity: 'high' as const,
+        title: 't',
+        description: 'd',
+        file: 'src/a.ts',
+      },
+    ],
+  };
+  const ctx = { projectName: 'demo', stack: 'typescript', overallScore: 7, categorySummaries: [] };
+
+  const chatResponse = (content: unknown): Response =>
+    new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
+
+  beforeEach(() => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-key');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('triage() posts to OpenRouter with auth and a timeout signal, and parses verdicts', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      chatResponse({
+        verdicts: [{ findingKey: 'SEC-001|src/a.ts|', classification: 'real', confidence: 0.9, reasoning: 'r' }],
+      }),
+    );
+    const verdicts = await new OpenRouterLLMClient().triage(unit, ctx);
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0].classification).toBe('real');
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toContain('openrouter.ai');
+    // The audit flagged a missing timeout — a hung connection blocked audits forever.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer test-key' });
+  });
+
+  it('verify() and remediate() go through the same chat path', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockResolvedValueOnce(
+      chatResponse({
+        verdicts: [
+          { findingKey: 'SEC-001|src/a.ts|', classification: 'false-positive', confidence: 0.7, reasoning: 'r' },
+        ],
+      }),
+    );
+    const client = new OpenRouterLLMClient();
+    expect(await client.verify(unit, ctx)).toHaveLength(1);
+    fetchSpy.mockResolvedValueOnce(
+      chatResponse({ remediations: [{ findingKey: 'SEC-001|src/a.ts|', fix: 'do x', effort: 'low' }] }),
+    );
+    expect(await client.remediate(unit, ctx)).toHaveLength(1);
+  });
+
+  it('surfaces HTTP errors with the status code and body excerpt', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('quota exceeded', { status: 429 }));
+    await expect(new OpenRouterLLMClient().triage(unit, ctx)).rejects.toThrow(/429.*quota exceeded/);
+  });
+
+  it('summarize() returns the trimmed raw text content', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: '  An executive summary.  ' } }] }), {
+        status: 200,
+      }),
+    );
+    expect(await new OpenRouterLLMClient().summarize('digest', ctx)).toBe('An executive summary.');
   });
 });

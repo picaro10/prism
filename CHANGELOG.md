@@ -3,6 +3,30 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [Unreleased]
+
+### Changed
+- **CLI split by command** — `src/cli/index.ts` (775 lines mixing declaration,
+  validation, config, lifecycle, rendering, AI and dashboard) is now a thin
+  entry that registers per-command modules (`commands/analyze`, `commands/triage`,
+  `commands/reports`, `commands/setup`) over a `shared.ts` contract (exit codes,
+  option validation, report loading). No behavior change — the spawn-based
+  exit-code e2e suite passes unchanged.
+- **Deep report validation everywhere** — a shared Zod schema
+  (`core/report-schema.ts`) now validates saved reports at every entry point
+  (`triage`, `diff`, `finding get`, dashboard). Structurally broken reports
+  fail fast with reasons (exit 2) instead of crashing a renderer with a 500;
+  the dashboard also caps report files at 25 MB before parsing.
+- **HTML/dashboard accessibility** — score bars carry `role="meter"` with aria
+  values and labels; only critical/high finding sections start expanded; the
+  dashboard table gains a caption and a horizontal-scroll wrapper; both pages
+  have print styles.
+- **Coverage floor raised** — thresholds 78/72/78/78 → 85/77/87/87. New unit
+  suites for the CLI renderer, `core/baseline.ts` (real git worktree path),
+  the OpenRouter HTTP layer (mocked fetch), report schema, and CLI shared
+  helpers. Only the spawn-tested command wiring stays excluded from in-process
+  coverage.
+
 ## [1.2.1] — 2026-08-02
 
 **Honest scoring & hardening** — driven by an external audit; every confirmed finding fixed.

@@ -1,8 +1,9 @@
 import { createServer, type Server } from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import type { AuditReport } from '../core/types.js';
 import { formatHtmlReport, escapeHtml } from '../reporters/html.js';
+import { parseReport } from '../core/report-schema.js';
 
 /** A report file the dashboard can list and render. */
 export interface ReportEntry {
@@ -11,16 +12,20 @@ export interface ReportEntry {
   report: AuditReport;
 }
 
-/** Shape check: is this parsed JSON a PRISM audit report? */
+/**
+ * Cap on a single report file — the dashboard re-reads the directory on every
+ * request, so a runaway multi-hundred-MB JSON must not be parsed at all.
+ */
+const MAX_REPORT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Shape check: is this parsed JSON a PRISM audit report? Deep validation via
+ * the shared Zod schema — a structurally broken report (finding without a
+ * severity, category without findings) used to pass the old four-property
+ * check and 500 later inside the HTML renderer.
+ */
 export function isPrismReport(value: unknown): value is AuditReport {
-  if (!value || typeof value !== 'object') return false;
-  const r = value as Partial<AuditReport>;
-  return (
-    typeof r.projectName === 'string' &&
-    typeof r.overallScore === 'number' &&
-    Array.isArray(r.findings) &&
-    Array.isArray(r.categories)
-  );
+  return parseReport(value) !== null;
 }
 
 /**
@@ -38,7 +43,9 @@ export async function loadReports(dir: string): Promise<ReportEntry[]> {
   }
   for (const name of names.filter((n) => n.endsWith('.json')).sort()) {
     try {
-      const parsed = JSON.parse(await readFile(join(dir, name), 'utf-8'));
+      const path = join(dir, name);
+      if ((await stat(path)).size > MAX_REPORT_BYTES) continue; // pathological file — skip
+      const parsed = JSON.parse(await readFile(path, 'utf-8'));
       if (isPrismReport(parsed)) entries.push({ file: name, report: parsed });
     } catch {
       // unreadable or invalid JSON — not a report, skip
@@ -78,6 +85,14 @@ a:hover { text-decoration: underline; }
 .muted { color: #8b8d98; font-size: 0.88rem; }
 .empty { background: #18191d; border: 1px solid #26272c; border-radius: 10px; padding: 1.2rem;
   color: #8b8d98; }
+.tablewrap { overflow-x: auto; }
+caption { text-align: left; color: #8b8d98; font-size: 0.85rem; padding: 0 0 0.5rem; caption-side: top; }
+@media print {
+  :root { color-scheme: light; }
+  body { background: #fff; color: #111; }
+  table, .empty { background: #fff; border-color: #ccc; }
+  a { color: #111; }
+}
 `;
 
 /** Render the dashboard index for a set of report entries. Pure. */
@@ -104,10 +119,11 @@ Generate one with <code>prism analyze &lt;target&gt; -o json -f ${escapeHtml(dir
 </tr>`;
       })
       .join('\n');
-    body = `<table>
+    body = `<div class="tablewrap"><table>
+<caption>Saved PRISM audit reports, newest first per project</caption>
 <thead><tr><th>Project</th><th>Score</th><th>Findings</th><th>AI triage</th><th>Date</th><th>File</th></tr></thead>
 <tbody>${rows}</tbody>
-</table>`;
+</table></div>`;
   }
 
   return `<!doctype html>

@@ -9,15 +9,18 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/cli/index.ts'],
-      // A serious, enforced floor — set just below current coverage (≈80/74/82/81)
+      // Command wiring is exercised by the spawn-based e2e tests in tests/cli
+      // (child processes — invisible to in-process V8 coverage). The testable
+      // CLI logic lives in src/cli/shared.ts + core modules, which ARE covered.
+      exclude: ['src/cli/index.ts', 'src/cli/commands/**'],
+      // A serious, enforced floor — set just below current coverage (≈88/80/90/90)
       // so it guards against regression without chasing decorative 100%. Raise
       // as coverage grows; the CI runs `test:coverage`, so these are enforced.
       thresholds: {
-        statements: 78,
-        branches: 72,
-        functions: 78,
-        lines: 78,
+        statements: 85,
+        branches: 77,
+        functions: 87,
+        lines: 87,
       },
     },
   },

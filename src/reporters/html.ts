@@ -40,9 +40,10 @@ function scoreColor(score: number): string {
   return '#e5484d';
 }
 
-function scoreBar(score: number, height = 10): string {
+function scoreBar(score: number, height = 10, label = 'score'): string {
   const pct = Math.max(0, Math.min(100, score * 10));
-  return `<div class="bar" style="height:${height}px"><div class="bar-fill" style="width:${pct}%;background:${scoreColor(score)}"></div></div>`;
+  // role=meter + aria values so the bar is not a mute div to screen readers.
+  return `<div class="bar" role="meter" aria-label="${escapeHtml(label)}" aria-valuenow="${score}" aria-valuemin="0" aria-valuemax="10" style="height:${height}px"><div class="bar-fill" style="width:${pct}%;background:${scoreColor(score)}"></div></div>`;
 }
 
 function verdictBadge(v: Verdict): string {
@@ -90,7 +91,7 @@ function renderCategory(cat: CategoryScore): string {
   return [
     `<div class="cat-row">`,
     `<span class="cat-name">${escapeHtml(cat.category)}</span>`,
-    scoreBar(num(cat.score)),
+    scoreBar(num(cat.score), 10, `${cat.category} score`),
     `<span class="cat-score" style="color:${scoreColor(num(cat.score))}">${num(cat.score)}/10</span>`,
     `<span class="cat-count">${count === 0 ? 'clean' : `${count} finding${count === 1 ? '' : 's'}`}</span>`,
     '</div>',
@@ -146,6 +147,14 @@ details.sev summary { cursor: pointer; font-weight: 600; padding: 0.5rem 0.8rem;
 footer { margin-top: 2.5rem; color: #6c6e79; font-size: 0.85rem; border-top: 1px solid #1f2025;
   padding-top: 1rem; }
 .clean { color: #6fd87a; font-weight: 600; }
+@media print {
+  :root { color-scheme: light; }
+  body { background: #fff; color: #111; }
+  .card, details.sev summary { background: #fff; border-color: #ccc; }
+  .card { break-inside: avoid; }
+  h2 { color: #333; }
+  .sub, .muted, .suggestion, footer { color: #555; }
+}
 `;
 
 /** Render the audit report as a fully self-contained HTML document. */
@@ -186,7 +195,7 @@ ${overview.map(([k, v]) => `<div class="ov-item"><div class="k">${escapeHtml(k)}
   sections.push(`<h2>Overall Score</h2>
 <div class="card score-big">
 <span class="score-num" style="color:${scoreColor(num(report.overallScore))}">${num(report.overallScore)}/10</span>
-${scoreBar(num(report.overallScore), 14)}
+${scoreBar(num(report.overallScore), 14, 'overall score')}
 </div>`);
 
   sections.push(`<h2>Category Breakdown</h2>
@@ -202,7 +211,10 @@ ${report.categories.map(renderCategory).join('\n')}
       const items = report.findings.filter((f) => f.severity === severity);
       if (items.length === 0) continue;
       const meta = SEVERITY_META[severity];
-      sections.push(`<details class="sev" open>
+      // Only critical/high start expanded — a big report with every section
+      // open is unreadable; low/info noise stays one click away.
+      const open = severity === 'critical' || severity === 'high' ? ' open' : '';
+      sections.push(`<details class="sev"${open}>
 <summary><span class="sev-dot" style="background:${meta.color}"></span>${meta.label} (${items.length})</summary>
 ${items.map((f) => renderFinding(f, verdictByKey.get(findingKey(f)), fixByKey.get(findingKey(f)))).join('\n')}
 </details>`);
