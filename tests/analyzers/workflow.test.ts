@@ -142,9 +142,10 @@ describe('WorkflowAnalyzer', () => {
     };
   }
 
-  it('is N/A (score 10) when there are no workflows', async () => {
+  it('is N/A (applicable: false) when there are no workflows', async () => {
     const result = await analyzer.analyze(scan(['src/a.ts']), async () => '');
     expect(result.score).toBe(10);
+    expect(result.applicable).toBe(false);
     expect(result.summary).toMatch(/N\/A/);
   });
 

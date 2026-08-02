@@ -28,7 +28,8 @@ export class WorkflowAnalyzer implements Analyzer {
         category: 'workflow',
         score: 10,
         findings: [],
-        summary: 'No GitHub Actions workflows found (N/A — absence is not a defect).',
+        summary: 'No GitHub Actions workflows found (N/A — not scored).',
+        applicable: false,
       };
     }
 

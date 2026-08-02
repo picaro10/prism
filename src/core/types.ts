@@ -64,6 +64,13 @@ export interface CategoryScore {
   findings: Finding[];
   /** Short summary of this category's result */
   summary: string;
+  /**
+   * False when the category had nothing to analyze (e.g. no Dockerfiles, no
+   * CI workflows). Non-applicable categories are excluded from the overall
+   * score and rendered as N/A — "not analyzed" must never read as "perfect".
+   * Absent means true (reports from older versions).
+   */
+  applicable?: boolean;
 }
 
 /** The complete audit report */
@@ -104,7 +111,11 @@ export interface AuditReport {
 export interface ProjectMeta {
   /** Detected language/runtime */
   stack: DetectedStack;
-  /** Total lines of code (excluding node_modules, dist, etc.) */
+  /**
+   * Always 0 — the scanner never reads file contents (too expensive at this
+   * phase). Real LOC is measured by the structure analyzer and reported in
+   * its summary. Kept for report-shape compatibility.
+   */
   totalLoc: number;
   /** Number of source files */
   totalFiles: number;
@@ -158,6 +169,8 @@ export interface AnalyzerResult {
   score: number;
   findings: Finding[];
   summary: string;
+  /** False when there was nothing to analyze — see CategoryScore.applicable. */
+  applicable?: boolean;
 }
 
 export interface Analyzer {
@@ -209,8 +222,6 @@ export interface PrismConfig {
   targetPath: string;
   /** Which analyzers to run (empty = all) */
   analyzers?: AnalysisCategory[];
-  /** Patterns to ignore beyond .gitignore */
-  ignorePatterns?: string[];
   /** Output format */
   output?: 'cli' | 'json' | 'html';
   /** Output file path (for json/html) */

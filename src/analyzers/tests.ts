@@ -41,7 +41,8 @@ export class TestsAnalyzer implements Analyzer {
         category: 'tests',
         score: 10,
         findings,
-        summary: 'No source code to test (infra/config/docs repo) — tests N/A',
+        summary: 'No source code to test (infra/config/docs repo) — tests N/A (not scored)',
+        applicable: false,
       };
     }
 
@@ -255,9 +256,13 @@ export class TestsAnalyzer implements Analyzer {
     }
 
     // --- Positive signals ---
-    if (ratio >= 0.5) score = Math.min(10, score + 0.5);
-    if (hasTestConfig) score = Math.min(10, score + 0.3);
-    if (totalDecorative === 0 && testFiles.length > 5) score = Math.min(10, score + 0.3);
+    // These EARN the last 1.1 of the score rather than refunding penalties
+    // (the additive-capped form let a category with real findings still show
+    // a perfect 10 — bonuses must never mask findings).
+    score -= 1.1;
+    if (ratio >= 0.5) score += 0.5;
+    if (hasTestConfig) score += 0.3;
+    if (totalDecorative === 0 && testFiles.length > 5) score += 0.3;
 
     return {
       category: 'tests',

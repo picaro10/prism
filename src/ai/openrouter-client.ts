@@ -25,6 +25,7 @@ const RemediationSchema = z.object({
 });
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const REQUEST_TIMEOUT_MS = 120_000;
 
 // OpenRouter is OpenAI-compatible and does not expose Anthropic structured
 // outputs, so we ask for a JSON object and parse/validate it ourselves.
@@ -134,8 +135,11 @@ export class OpenRouterLLMClient implements LLMClient {
 
   /** One chat completion; returns the raw message content. */
   private async chat(system: string, user: string, jsonMode: boolean): Promise<string> {
+    // A hung connection must fail the call, not block the audit forever —
+    // fetch has no default timeout. 120s covers slow model queues.
     const res = await fetch(OPENROUTER_URL, {
       method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',

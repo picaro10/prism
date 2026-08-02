@@ -538,7 +538,7 @@ was inspected", not "deep audit passed":
 
 | Area | Support |
 |---|---|
-| TypeScript / JavaScript | **Full** — all seven analyzers, import graph, dead-file and cycle detection |
+| TypeScript / JavaScript | **Full** — all eight analyzers, import graph, dead-file and cycle detection |
 | Python | Partial — dependencies (`requirements.txt` pinning) and basic structure |
 | Docker / Compose | Full — Dockerfile and docker-compose checks |
 | GitHub Actions | Full — workflow risk analysis cross-checked against the repo (other CI systems: not yet) |

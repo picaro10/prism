@@ -96,6 +96,15 @@ describe('applySuppressions', () => {
     expect(r.warnings.some((w) => /matched no findings/i.test(w) && w.includes('SEC-001'))).toBe(true);
   });
 
+  it('annotates the category summary so it cannot describe findings that were removed', () => {
+    const r = applySuppressions(
+      [result([finding('SEC-001', 'high', 'a.ts'), finding('SEC-002', 'high', 'b.ts')])],
+      [{ rule: 'SEC-001', reason: 'accepted risk' }],
+      NOW,
+    );
+    expect(r.results[0].summary).toMatch(/1 finding\(s\) suppressed/);
+  });
+
   it('leaves results untouched when there are no suppressions', () => {
     const input = [result([finding('SEC-001', 'high', 'a.ts')], 5)];
     const r = applySuppressions(input, [], NOW);

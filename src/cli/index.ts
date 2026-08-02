@@ -3,7 +3,6 @@
 import { Command } from 'commander';
 import { resolve, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile as fsReadFile } from 'node:fs/promises';
 import ora from 'ora';
 import chalk from 'chalk';
 import { runAudit, ANALYZER_CATEGORIES } from '../core/engine.js';
@@ -42,7 +41,7 @@ function parseVoteModels(value: string | boolean | undefined): string[] | undefi
 const EXIT = { OK: 0, FINDINGS: 1, USAGE: 2, INTERNAL: 3 } as const;
 
 const DEFAULT_MIN_SCORE = 6;
-const CLI_VERSION = '1.2.0';
+const CLI_VERSION = '1.2.1';
 
 const program = new Command();
 
@@ -119,7 +118,9 @@ program
     // Explicit --config always wins; --no-config skips discovery. Discovery
     // only trusts LOCAL targets: a cloned/extracted third-party repo must not
     // get to pick its own gates or suppress its own findings.
-    const { loadConfigFile, resolveEffectiveOptions, CONFIG_FILENAMES } = await import('../core/config-file.js');
+    const { loadConfigFile, resolveEffectiveOptions, validateEffectiveOptions, CONFIG_FILENAMES } = await import(
+      '../core/config-file.js'
+    );
     let fileConfig: import('../core/config-file.js').PrismFileConfig | null = null;
     let fileConfigPath: string | undefined;
     if (options.config !== false) {
@@ -151,17 +152,18 @@ program
 
     // Validate the effective values (CLI-origin ones are unchecked strings; the
     // file side was already schema-validated, so these double as flag checks).
-    const minScore = eff.minScore;
-    if (!Number.isFinite(minScore) || minScore < 0 || minScore > 10) {
-      console.error(chalk.red(`\n  ✗ --min-score must be a number between 0 and 10 (got: ${options.minScore})\n`));
-      process.exit(EXIT.USAGE);
-    }
+    const optionErrors = validateEffectiveOptions(eff);
     const { SEVERITIES } = await import('../core/quality-gate.js');
     const failOn = eff.failOn;
     if (failOn && !SEVERITIES.includes(failOn)) {
-      console.error(chalk.red(`\n  ✗ --fail-on must be one of: ${SEVERITIES.join(', ')} (got: ${failOn})\n`));
+      optionErrors.push(`--fail-on must be one of: ${SEVERITIES.join(', ')} (got: ${failOn})`);
+    }
+    if (optionErrors.length > 0) {
+      for (const e of optionErrors) console.error(chalk.red(`\n  ✗ ${e}`));
+      console.error('');
       process.exit(EXIT.USAGE);
     }
+    const minScore = eff.minScore;
     // An unknown category (e.g. a typo, or an analyzer NAME like "secrets"
     // instead of its category "security") would otherwise silently run zero
     // analyzers and report a false 0/10.
@@ -432,6 +434,25 @@ program
       process.exit(EXIT.USAGE);
     }
 
+    // Same flag validation as analyze — commander passes any string through.
+    const { OUTPUT_FORMATS, AI_PROVIDERS } = await import('../core/config-file.js');
+    const triageErrors: string[] = [];
+    if (!OUTPUT_FORMATS.includes(String(options.output) as (typeof OUTPUT_FORMATS)[number])) {
+      triageErrors.push(`--output must be one of: ${OUTPUT_FORMATS.join(', ')} (got: ${options.output})`);
+    }
+    if (options.aiProvider && !AI_PROVIDERS.includes(String(options.aiProvider) as (typeof AI_PROVIDERS)[number])) {
+      triageErrors.push(`--ai-provider must be one of: ${AI_PROVIDERS.join(', ')} (got: ${options.aiProvider})`);
+    }
+    const triageConcurrency = options.aiConcurrency ? Number(String(options.aiConcurrency)) : undefined;
+    if (triageConcurrency !== undefined && (!Number.isInteger(triageConcurrency) || triageConcurrency < 1)) {
+      triageErrors.push(`--ai-concurrency must be an integer ≥ 1 (got: ${options.aiConcurrency})`);
+    }
+    if (triageErrors.length > 0) {
+      for (const e of triageErrors) console.error(chalk.red(`\n  ✗ ${e}`));
+      console.error('');
+      process.exit(EXIT.USAGE);
+    }
+
     // --dry-run needs no key (canned responses); otherwise require the provider key.
     if (!options.dryRun) {
       const provider = options.aiProvider
@@ -448,7 +469,12 @@ program
       }
     }
 
-    const reader: FileReader = async (rel) => fsReadFile(join(report.projectPath, rel), 'utf-8');
+    // The report is untrusted input: confine every file read to the project
+    // root it names (no absolute paths, no ../ escapes), and say out loud
+    // which directory is about to be read — snippets go to the AI provider.
+    const { confinedReader } = await import('../utils/safe-read.js');
+    console.error(chalk.dim(`  Reading code from ${report.projectPath} (as recorded in the report)`));
+    const reader: FileReader = confinedReader(report.projectPath);
     const aiConfig: Pick<
       PrismConfig,
       | 'aiModel'
@@ -755,7 +781,10 @@ finding
     let fileContent: string | null = null;
     if (match.file) {
       try {
-        fileContent = await fsReadFile(join(report.projectPath, match.file), 'utf-8');
+        // Confined read — the report (and the file paths inside it) is
+        // untrusted input and must not reach outside its own projectPath.
+        const { confinedReader } = await import('../utils/safe-read.js');
+        fileContent = await confinedReader(report.projectPath)(match.file);
       } catch {
         fileContent = null;
       }

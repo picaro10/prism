@@ -9,7 +9,11 @@ export async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
-  const workerCount = Math.max(1, Math.min(limit, items.length));
+  // NaN survives both Math.max and Math.min, and Array.from({length: NaN})
+  // silently yields ZERO workers — every result stays undefined. Fall back
+  // to sequential instead.
+  const safeLimit = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 1;
+  const workerCount = Math.max(1, Math.min(safeLimit, items.length));
 
   const worker = async (): Promise<void> => {
     while (true) {

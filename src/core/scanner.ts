@@ -1,8 +1,9 @@
 import { readdir, stat, readFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
-import { join, relative, extname, basename } from 'node:path';
+import { join, relative, extname, basename, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import ignore from 'ignore';
+import { classifyFile, isExcludedContext } from '../utils/file-context.js';
 import type { ProjectScan, ProjectMeta, DetectedStack, FileNode } from './types.js';
 
 /** Directories always excluded from scanning */
@@ -46,10 +47,12 @@ const FRAMEWORK_INDICATORS: Record<string, (files: string[]) => boolean> = {
   // Express and FastAPI are dependency-based, not file-based (every Node repo
   // has package.json, every Python repo has .py) — resolved in detectFrameworks.
   Django: (f) => f.some((p) => p === 'manage.py' || p.includes('settings.py')),
+  // Fixture/vendored Dockerfiles don't make the project itself dockerized.
   Docker: (f) =>
     f.some(
       (p) =>
-        basename(p) === 'Dockerfile' || basename(p) === 'docker-compose.yml' || basename(p) === 'docker-compose.yaml',
+        !isExcludedContext(classifyFile(p)) &&
+        (basename(p) === 'Dockerfile' || basename(p) === 'docker-compose.yml' || basename(p) === 'docker-compose.yaml'),
     ),
   Vitest: (f) => f.some((p) => p.includes('vitest.config')),
   Jest: (f) => f.some((p) => p.includes('jest.config')),
@@ -112,7 +115,10 @@ async function walkDirectory(
 
   for (const entry of entries) {
     const fullPath = join(currentPath, entry.name);
-    const relPath = relative(rootPath, fullPath);
+    // Normalize to POSIX separators at the source: every consumer (ignore
+    // rules, .github/workflows/ prefixes, fixture classification, import
+    // graph) assumes '/' — on Windows path.relative() yields '\'.
+    const relPath = relative(rootPath, fullPath).split(sep).join('/');
 
     // Check against ignore rules. Directories are matched with a trailing
     // slash so dir-only patterns like `logs/` actually exclude the directory
@@ -239,7 +245,14 @@ function buildMeta(rootPath: string, files: string[], stack: DetectedStack, fram
     totalLoc: 0, // calculated later if needed (expensive)
     totalFiles: files.length,
     hasGit: existsSync(join(rootPath, '.git')),
-    hasDocker: files.some((f) => basename(f) === 'Dockerfile' || basename(f).startsWith('docker-compose')),
+    // Only user-authored Docker files count — a Dockerfile inside test
+    // fixtures/vendored code must not flag the project as dockerized (it used
+    // to make the structure analyzer award a Docker bonus off a fixture).
+    hasDocker: files.some(
+      (f) =>
+        !isExcludedContext(classifyFile(f)) &&
+        (basename(f) === 'Dockerfile' || basename(f).startsWith('docker-compose')),
+    ),
     hasCi: files.some(
       (f) => f.startsWith('.github/workflows/') || f === '.gitlab-ci.yml' || f.startsWith('.circleci/'),
     ),

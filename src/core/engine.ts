@@ -1,6 +1,24 @@
-import { readFile as fsReadFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
 import { scanProject } from './scanner.js';
+import { confinedReader } from '../utils/safe-read.js';
+
+// Public library surface — the package is consumable as a library, so the
+// types a caller needs to build a config and read a report are re-exported
+// here (the build's public entry), not just embedded in the .d.ts internals.
+export type {
+  PrismConfig,
+  AuditReport,
+  CategoryScore,
+  Finding,
+  Severity,
+  AnalysisCategory,
+  Analyzer,
+  AnalyzerResult,
+  Suppression,
+  SuppressedFinding,
+  ProjectMeta,
+  ProjectScan,
+  FileReader,
+} from './types.js';
 import type {
   PrismConfig,
   AuditReport,
@@ -24,10 +42,7 @@ import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
 import { AgenticAnalyzer } from '../analyzers/agentic.js';
 import { WorkflowAnalyzer } from '../analyzers/workflow.js';
 
-const PRISM_VERSION = '1.2.0';
-
-/** Cap on a single file read — beyond this a "source" file is pathological. */
-const MAX_READ_BYTES = 15 * 1024 * 1024;
+const PRISM_VERSION = '1.2.1';
 
 /** Categories accepted by the `--only` filter (one per static analyzer). */
 export const ANALYZER_CATEGORIES = [
@@ -42,7 +57,7 @@ export const ANALYZER_CATEGORIES = [
 ] as const;
 
 /** Weight each category contributes to the overall score */
-const CATEGORY_WEIGHTS: Record<string, number> = {
+export const CATEGORY_WEIGHTS: Record<string, number> = {
   structure: 1.0,
   security: 2.0, // Security weighs double
   dependencies: 1.5,
@@ -87,17 +102,10 @@ export async function runAudit(
   const scan = await scanProject(config.targetPath);
   onProgress?.(`Found ${scan.files.length} files · Stack: ${scan.meta.stack.primary}`);
 
-  // Phase 2: Create file reader bound to the project root. A stat guard caps
-  // reads so a hostile repo with a huge file can't OOM the process before an
-  // analyzer's own size check runs. Analyzers already catch read errors and skip.
-  const fileReader: FileReader = async (relativePath: string) => {
-    const abs = join(scan.rootPath, relativePath);
-    const { size } = await stat(abs);
-    if (size > MAX_READ_BYTES) {
-      throw new Error(`file too large to read (${size} bytes): ${relativePath}`);
-    }
-    return fsReadFile(abs, 'utf-8');
-  };
+  // Phase 2: Create file reader bound to the project root — confined to it
+  // (no ../ or absolute escapes) and size-capped so a hostile repo with a
+  // huge file can't OOM the process. Analyzers already catch read errors.
+  const fileReader: FileReader = confinedReader(scan.rootPath);
 
   // Phase 3: Run analyzers
   const allAnalyzers = createAnalyzers();
@@ -159,6 +167,7 @@ export async function runAudit(
     maxScore: 10,
     findings: r.findings,
     summary: r.summary,
+    ...(r.applicable === false ? { applicable: false as const } : {}),
   }));
 
   // All findings sorted by severity
@@ -211,6 +220,9 @@ function calculateOverallScore(results: AnalyzerResult[]): number {
   let weightedSum = 0;
 
   for (const result of results) {
+    // Non-applicable categories (nothing to analyze) must not count as a
+    // perfect 10 in the average — they are excluded entirely.
+    if (result.applicable === false) continue;
     const weight = CATEGORY_WEIGHTS[result.category] || 1.0;
     weightedSum += result.score * weight;
     totalWeight += weight;
@@ -219,5 +231,12 @@ function calculateOverallScore(results: AnalyzerResult[]): number {
   if (totalWeight === 0) return 0;
 
   const raw = weightedSum / totalWeight;
-  return Math.round(raw * 10) / 10;
+  const rounded = Math.round(raw * 10) / 10;
+  // A report with scoreable (non-info) findings must never display a perfect
+  // 10 — rounding 9.96 up to "10/10" communicates a certainty the findings
+  // contradict.
+  const hasScoreableFindings = results.some(
+    (r) => r.applicable !== false && r.findings.some((f) => f.severity !== 'info'),
+  );
+  return rounded === 10 && hasScoreableFindings ? 9.9 : rounded;
 }

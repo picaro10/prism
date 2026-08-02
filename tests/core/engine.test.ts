@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { runAudit } from '../../src/core/engine.js';
+import { runAudit, CATEGORY_WEIGHTS } from '../../src/core/engine.js';
 import type { PrismConfig } from '../../src/core/types.js';
 import type { LLMClient, Verdict } from '../../src/ai/types.js';
 import { findingKey } from '../../src/ai/types.js';
@@ -20,7 +20,7 @@ describe('runAudit', () => {
     expect(report.overallScore).toBeGreaterThanOrEqual(0);
     expect(report.overallScore).toBeLessThanOrEqual(10);
     expect(report.categories.length).toBeGreaterThan(0);
-    expect(report.prismVersion).toBe('1.2.0');
+    expect(report.prismVersion).toBe('1.2.1');
   });
 
   it('includes all analyzer categories', async () => {
@@ -80,6 +80,28 @@ describe('runAudit', () => {
     if (securityScore < structureScore) {
       expect(report.overallScore).toBeLessThan(structureScore);
     }
+  });
+
+  it('marks categories with nothing to analyze as N/A and excludes them from the overall score', async () => {
+    // The fixture has no .github/workflows — workflow must be applicable:false
+    // (not a perfect 10 inflating the average).
+    const config: PrismConfig = { targetPath: FIXTURE_PATH };
+    const report = await runAudit(config);
+
+    const workflow = report.categories.find((c) => c.category === 'workflow');
+    expect(workflow?.applicable).toBe(false);
+
+    // Overall must equal the weighted average of APPLICABLE categories only.
+    const applicable = report.categories.filter((c) => c.applicable !== false);
+    expect(applicable.length).toBeLessThan(report.categories.length);
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const c of applicable) {
+      const w = CATEGORY_WEIGHTS[c.category] || 1.0;
+      weightedSum += c.score * w;
+      totalWeight += w;
+    }
+    expect(report.overallScore).toBe(Math.round((weightedSum / totalWeight) * 10) / 10);
   });
 });
 

@@ -30,4 +30,13 @@ describe('mapWithConcurrency', () => {
     expect(maxActive).toBeLessThanOrEqual(3);
     expect(maxActive).toBeGreaterThan(1); // actually ran in parallel
   });
+
+  it('treats an invalid limit (NaN/0/negative) as sequential instead of ZERO workers', async () => {
+    // NaN used to survive Math.max/Math.min and produce zero workers — every
+    // result stayed undefined while the caller reported success.
+    for (const bad of [Number.NaN, 0, -3, 0.4]) {
+      const out = await mapWithConcurrency([1, 2, 3], bad, async (n) => n * 2);
+      expect(out).toEqual([2, 4, 6]);
+    }
+  });
 });

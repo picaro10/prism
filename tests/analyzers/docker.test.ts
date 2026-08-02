@@ -126,4 +126,24 @@ describe('DockerAnalyzer — fixture/vendor exclusion', () => {
     const result = await analyzer.analyze(scan, async () => badDockerfile);
     expect(result.findings.some((f) => f.id === 'DOC-010')).toBe(true);
   });
+
+  it('is not applicable when there is no Docker configuration at all', async () => {
+    const scan = scanWith(['src/a.ts']);
+    const result = await analyzer.analyze(scan, async () => '');
+    expect(result.applicable).toBe(false);
+    expect(result.findings).toHaveLength(0);
+    expect(result.summary).toMatch(/N\/A/);
+  });
+
+  it('is not applicable when the only Dockerfile lives in a test fixture (used to score 10/10 "looks solid")', async () => {
+    const scan = scanWith(['tests/fixtures/sample-project/Dockerfile']);
+    const result = await analyzer.analyze(scan, async () => badDockerfile);
+    expect(result.applicable).toBe(false);
+  });
+
+  it('IS applicable when a real Dockerfile exists', async () => {
+    const scan = scanWith(['Dockerfile']);
+    const result = await analyzer.analyze(scan, async () => badDockerfile);
+    expect(result.applicable).toBeUndefined();
+  });
 });

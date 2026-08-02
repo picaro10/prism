@@ -25,16 +25,6 @@ export class DockerAnalyzer implements Analyzer {
     const findings: Finding[] = [];
     let score = 10;
 
-    // If no Docker at all, skip gracefully
-    if (!scan.meta.hasDocker) {
-      return {
-        category: 'docker',
-        score: 10,
-        findings: [],
-        summary: 'No Docker configuration found — skipped',
-      };
-    }
-
     // Find all Dockerfiles and compose files. Skip files in non-user-authored
     // contexts (test fixtures, templates, vendored/generated) — a deliberately
     // bad Dockerfile used as a test fixture is not a real finding.
@@ -49,6 +39,18 @@ export class DockerAnalyzer implements Analyzer {
           basename(f) === 'docker-compose.yaml' ||
           basename(f).match(/^docker-compose\..+\.ya?ml$/)),
     );
+
+    // Nothing real to analyze (fixture Dockerfiles don't count) — the category
+    // is not applicable, and the engine excludes it from the overall score.
+    if (dockerfiles.length === 0 && composeFiles.length === 0) {
+      return {
+        category: 'docker',
+        score: 10,
+        findings: [],
+        summary: 'No Docker configuration found (N/A — not scored)',
+        applicable: false,
+      };
+    }
     const hasDockerignore = scan.files.some((f) => basename(f) === '.dockerignore');
 
     // --- Check: .dockerignore ---

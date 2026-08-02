@@ -8,6 +8,11 @@ import AdmZip from 'adm-zip';
 
 const execFileAsync = promisify(execFile);
 
+// Zip-bomb limits — generous for any real code archive, fatal for hostile ones.
+const MAX_ZIP_ENTRIES = 50_000;
+const MAX_ZIP_TOTAL_BYTES = 500 * 1024 * 1024;
+const MAX_ZIP_RATIO = 200;
+
 // Temp dirs created for clones/extractions still in flight. On Ctrl-C (which can
 // land mid-clone, before resolveTarget returns a cleanup handle) a signal handler
 // removes them synchronously, so an interrupted run never leaves temps behind.
@@ -121,10 +126,26 @@ export async function extractZip(zipPath: string): Promise<ResolvedTarget> {
 
   try {
     const zip = new AdmZip(zipPath);
-    for (const entry of zip.getEntries()) {
+    const entries = zip.getEntries();
+    // Zip-bomb guards: an archive is untrusted input, and the declared
+    // uncompressed sizes are checked BEFORE writing a single byte so a
+    // hostile zip can't fill the disk or exhaust memory.
+    if (entries.length > MAX_ZIP_ENTRIES) {
+      throw new Error(`too many entries (${entries.length} > ${MAX_ZIP_ENTRIES})`);
+    }
+    let totalUncompressed = 0;
+    for (const entry of entries) {
       const target = resolve(dest, entry.entryName);
       if (target !== dest && !target.startsWith(dest + sep)) {
         throw new Error(`unsafe entry path: ${entry.entryName}`);
+      }
+      const { size, compressedSize } = entry.header;
+      totalUncompressed += size;
+      if (totalUncompressed > MAX_ZIP_TOTAL_BYTES) {
+        throw new Error(`archive expands beyond ${MAX_ZIP_TOTAL_BYTES / 1024 / 1024} MB — refusing to extract`);
+      }
+      if (compressedSize > 0 && size / compressedSize > MAX_ZIP_RATIO && size > 10 * 1024 * 1024) {
+        throw new Error(`suspicious compression ratio on ${entry.entryName} (possible zip bomb)`);
       }
     }
     zip.extractAllTo(dest, true);

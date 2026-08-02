@@ -307,9 +307,15 @@ export class StructureAnalyzer implements Analyzer {
     const deadOverflow = Math.max(0, deadResult.dead.length - MAX_DEAD_FILE_FINDINGS);
 
     // --- Positive signals ---
-    if (scan.meta.hasCi) score = Math.min(10, score + 0.5);
-    if (scan.meta.hasDocker) score = Math.min(10, score + 0.3);
-    if (hasLinter) score = Math.min(10, score + 0.2);
+    // These EARN the last 0.7 of the score rather than refunding penalties:
+    // the base tops out at 9.3, and CI/linter presence closes the gap to 10.
+    // The old additive form (score + bonus, capped at 10) let a category with
+    // real findings still render a perfect 10 — bonuses must never mask
+    // findings. Docker presence earns nothing: it says nothing about code
+    // structure (and used to be detected from test fixtures).
+    score -= 0.7;
+    if (scan.meta.hasCi) score += 0.5;
+    if (hasLinter) score += 0.2;
 
     return {
       category: 'structure',

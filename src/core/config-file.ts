@@ -128,6 +128,39 @@ export interface EffectiveOptions {
 /** Raw commander option values for the analyze command (subset we merge). */
 export type CliOptionValues = Record<string, string | boolean | undefined>;
 
+export const OUTPUT_FORMATS = ['cli', 'json', 'html'] as const;
+export const AI_PROVIDERS = ['anthropic', 'openrouter'] as const;
+
+/**
+ * Validate the fully-resolved option set. CLI-origin values arrive as raw
+ * strings coerced with Number() (so a typo becomes NaN, not an error), and
+ * commander accepts any string for enum-ish flags — every one of these slipped
+ * through silently before and broke the exit-code contract. Returns human
+ * error messages; empty array means valid.
+ */
+export function validateEffectiveOptions(eff: EffectiveOptions): string[] {
+  const errors: string[] = [];
+  if (!Number.isFinite(eff.minScore) || eff.minScore < 0 || eff.minScore > 10) {
+    errors.push(`--min-score must be a number between 0 and 10 (got: ${eff.minScore})`);
+  }
+  if (eff.maxCritical !== undefined && (!Number.isInteger(eff.maxCritical) || eff.maxCritical < 0)) {
+    errors.push(`--max-critical must be an integer ≥ 0 (got: ${eff.maxCritical})`);
+  }
+  if (eff.maxHigh !== undefined && (!Number.isInteger(eff.maxHigh) || eff.maxHigh < 0)) {
+    errors.push(`--max-high must be an integer ≥ 0 (got: ${eff.maxHigh})`);
+  }
+  if (!OUTPUT_FORMATS.includes(eff.output)) {
+    errors.push(`--output must be one of: ${OUTPUT_FORMATS.join(', ')} (got: ${eff.output})`);
+  }
+  if (eff.aiProvider !== undefined && !AI_PROVIDERS.includes(eff.aiProvider)) {
+    errors.push(`--ai-provider must be one of: ${AI_PROVIDERS.join(', ')} (got: ${eff.aiProvider})`);
+  }
+  if (eff.aiConcurrency !== undefined && (!Number.isInteger(eff.aiConcurrency) || eff.aiConcurrency < 1)) {
+    errors.push(`--ai-concurrency must be an integer ≥ 1 (got: ${eff.aiConcurrency})`);
+  }
+  return errors;
+}
+
 function parseList(value: string): string[] {
   return value
     .split(',')

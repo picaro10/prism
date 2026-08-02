@@ -3,6 +3,57 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [1.2.1] — 2026-08-02
+
+**Honest scoring & hardening** — driven by an external audit; every confirmed finding fixed.
+
+### Fixed
+- **Scoring can no longer mask findings.** Positive signals (CI, linter, test config,
+  test ratio) now *earn* the last stretch of a category score instead of refunding
+  penalty points — a category with real findings can no longer render a perfect 10.
+  The Docker-presence bonus is gone entirely (it said nothing about code structure,
+  and was being detected from test fixtures). The overall score is capped at 9.9
+  whenever any scoreable (non-info) finding exists — no more "10/10" via rounding.
+- **Not-analyzed ≠ perfect.** Categories with nothing to analyze (no Dockerfiles, no
+  workflows, no source code to test) report `applicable: false`, are excluded from
+  the overall weighted average, and render as **N/A** in CLI/HTML instead of 10/10.
+- **`npm audit` no longer fails open.** When the audit can't run (offline, npm
+  missing, unparseable output) the category takes a low-severity finding and a
+  -1 penalty: unknown vulnerability status is not a clean bill of health.
+- **CLI flag validation.** `--max-critical`, `--max-high`, `--output`,
+  `--ai-provider`, `--ai-concurrency` and `--min-score` are validated on both
+  `analyze` and `triage`; invalid values exit 2 (usage) instead of being silently
+  ignored with exit 0. `mapWithConcurrency` treats an invalid limit as sequential
+  (a NaN limit used to spawn zero workers and report success with zero results).
+- **Fixture Dockerfiles no longer flag the project as dockerized** (`hasDocker` and
+  the Docker framework tag now use the same user-authored-context filter as the
+  analyzer).
+- **Suppressions annotate category summaries** ("· N finding(s) suppressed by
+  config") so a summary can no longer describe findings that were removed.
+- README: "seven analyzers" → eight.
+
+### Security
+- **Saved reports are treated as untrusted input.** `triage` and `finding get`
+  confine every file read to the report's `projectPath` — absolute paths and
+  `../` escapes are rejected (a manipulated report could previously read
+  arbitrary local files, and `triage --ai` could send them to the LLM provider).
+  `triage` now also prints which directory it is about to read.
+- **Zip-bomb guards** on `.zip` targets: entry count, total declared uncompressed
+  size and per-entry compression ratio are checked before a single byte is
+  written.
+- **Dependency cleanup:** removed unused production deps `glob` (which carried the
+  high-severity `brace-expansion` advisory) and `table`; pinned `esbuild` past
+  GHSA-g7r4-m6w7-qqqr. `npm audit`: **0 vulnerabilities**.
+- **OpenRouter client timeout** (120s) — a hung connection can no longer block an
+  audit indefinitely.
+
+### Changed
+- Windows groundwork: scanner paths are normalized to POSIX separators at the
+  source, and CI now runs a `windows-latest` matrix leg.
+- The library entry (`dist/core/engine`) exports the public types (`PrismConfig`,
+  `AuditReport`, `Finding`, `CategoryScore`, `Analyzer`, …) and
+  `CATEGORY_WEIGHTS`. Removed the dead `PrismConfig.ignorePatterns` option.
+
 ## [1.2.0] — 2026-07-22
 
 **Workflow Intelligence** — the eighth audit dimension.

@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfigFile, resolveEffectiveOptions, DEFAULT_MIN_SCORE } from '../../src/core/config-file.js';
+import {
+  loadConfigFile,
+  resolveEffectiveOptions,
+  validateEffectiveOptions,
+  DEFAULT_MIN_SCORE,
+} from '../../src/core/config-file.js';
 import type { PrismFileConfig } from '../../src/core/config-file.js';
 
 function tempDirWith(name: string, content: unknown): string {
@@ -157,5 +162,46 @@ describe('resolveEffectiveOptions', () => {
     const f: PrismFileConfig = { ai: { enabled: true, verify: true } };
     const eff = resolveEffectiveOptions(f, { aiVerify: false }, (n) => n === 'aiVerify');
     expect(eff.aiVerify).toBe(false);
+  });
+});
+
+describe('validateEffectiveOptions', () => {
+  const cliIsSet = () => true;
+  const effFrom = (cli: Record<string, string | boolean | undefined>) => resolveEffectiveOptions(null, cli, cliIsSet);
+
+  it('accepts a valid option set', () => {
+    const eff = effFrom({ minScore: '7', output: 'json', maxCritical: '0', aiProvider: 'anthropic' });
+    expect(validateEffectiveOptions(eff)).toEqual([]);
+  });
+
+  it('rejects a non-numeric --max-critical (used to exit 0 and silently drop the gate)', () => {
+    const errors = validateEffectiveOptions(effFrom({ maxCritical: 'nope' }));
+    expect(errors.some((e) => e.includes('--max-critical'))).toBe(true);
+  });
+
+  it('rejects a non-numeric --max-high and negative values', () => {
+    expect(validateEffectiveOptions(effFrom({ maxHigh: 'nope' }))).toHaveLength(1);
+    expect(validateEffectiveOptions(effFrom({ maxHigh: '-1' }))).toHaveLength(1);
+  });
+
+  it('rejects an unknown --output format', () => {
+    const errors = validateEffectiveOptions(effFrom({ output: 'garbage' }));
+    expect(errors.some((e) => e.includes('--output'))).toBe(true);
+  });
+
+  it('rejects an unknown --ai-provider', () => {
+    const errors = validateEffectiveOptions(effFrom({ aiProvider: 'nonsense' }));
+    expect(errors.some((e) => e.includes('--ai-provider'))).toBe(true);
+  });
+
+  it('rejects a non-numeric or sub-1 --ai-concurrency (NaN used to mean zero workers)', () => {
+    expect(validateEffectiveOptions(effFrom({ aiConcurrency: 'nope' }))).toHaveLength(1);
+    expect(validateEffectiveOptions(effFrom({ aiConcurrency: '0' }))).toHaveLength(1);
+    expect(validateEffectiveOptions(effFrom({ aiConcurrency: '5' }))).toEqual([]);
+  });
+
+  it('rejects an out-of-range --min-score', () => {
+    expect(validateEffectiveOptions(effFrom({ minScore: '11' }))).toHaveLength(1);
+    expect(validateEffectiveOptions(effFrom({ minScore: 'abc' }))).toHaveLength(1);
   });
 });

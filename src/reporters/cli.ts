@@ -151,9 +151,16 @@ function renderCategoryBreakdown(categories: CategoryScore[]): void {
   console.log(chalk.dim('  ─────────────────'));
 
   for (const cat of categories) {
+    const label = cat.category.padEnd(14);
+    if (cat.applicable === false) {
+      // Nothing was analyzed — show N/A, never a perfect green bar.
+      console.log(
+        `  ${label} ${chalk.dim('░'.repeat(20))}  ${chalk.dim('N/A')}   ${chalk.dim('(nothing to analyze)')}`,
+      );
+      continue;
+    }
     const colorFn = SCORE_COLOR(cat.score);
     const bar = renderScoreBar(cat.score, 20);
-    const label = cat.category.padEnd(14);
     const findingCount =
       cat.findings.length > 0 ? chalk.dim(` (${cat.findings.length} findings)`) : chalk.dim(' (clean)');
 

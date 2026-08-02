@@ -75,6 +75,17 @@ function renderFinding(f: Finding, verdict: Verdict | undefined, fix: Remediatio
 }
 
 function renderCategory(cat: CategoryScore): string {
+  if (cat.applicable === false) {
+    // Nothing was analyzed — render N/A, never a perfect green bar.
+    return [
+      `<div class="cat-row">`,
+      `<span class="cat-name">${escapeHtml(cat.category)}</span>`,
+      `<span class="bar" aria-hidden="true"></span>`,
+      `<span class="cat-score" style="color:#8b8d98">N/A</span>`,
+      `<span class="cat-count">nothing to analyze</span>`,
+      '</div>',
+    ].join('');
+  }
   const count = cat.findings.length;
   return [
     `<div class="cat-row">`,

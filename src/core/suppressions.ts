@@ -74,7 +74,12 @@ export function applySuppressions(
     });
     if (kept.length === result.findings.length) return result;
     const score = Math.min(10, Math.round((result.score + refund) * 10) / 10);
-    return { ...result, findings: kept, score };
+    // The summary was written before suppression and may describe findings
+    // that are no longer in the report (e.g. "5 risks found" with zero
+    // findings left) — annotate it so the report stays coherent.
+    const removed = result.findings.length - kept.length;
+    const summary = `${result.summary} · ${removed} finding(s) suppressed by config (see suppressions)`;
+    return { ...result, findings: kept, score, summary };
   });
 
   for (const a of active) {

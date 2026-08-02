@@ -176,15 +176,19 @@ export class DependenciesAnalyzer implements Analyzer {
             scoreDelta -= 1;
           }
         } else {
-          // npm missing, no network for the advisory db, or unparseable output
+          // npm missing, no network for the advisory db, or unparseable output.
+          // A security check that could NOT run must never read as "no vulns"
+          // — offline runs used to score 10/10 while real advisories existed.
           findings.push({
             id: 'DEP-AUDIT-SKIP',
             category: 'dependencies',
-            severity: 'info',
-            title: 'npm audit could not run',
-            description: 'Could not execute npm audit. Install dependencies first or run manually.',
-            suggestion: 'Run npm install && npm audit manually.',
+            severity: 'low',
+            title: 'npm audit could not run — vulnerability status UNKNOWN',
+            description:
+              'Could not execute npm audit (npm missing, offline, or unparseable output). Known-vulnerability status is unknown, not clean.',
+            suggestion: 'Run npm install && npm audit manually, then re-run PRISM with network access.',
           });
+          scoreDelta -= 1;
         }
       }
 
