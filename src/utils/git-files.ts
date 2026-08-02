@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { SAFE_GIT_ARGS, safeGitEnv } from './git-safe.js';
+import { safeGitArgs, safeGitEnv } from './git-safe.js';
 
 /**
  * Relative (POSIX) paths of every file tracked in the git index under
@@ -21,7 +21,7 @@ export function gitTrackedFiles(rootPath: string): Promise<string[] | null> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      [...SAFE_GIT_ARGS, '--no-optional-locks', '-C', rootPath, 'ls-files', '-z'],
+      [...safeGitArgs(), '--no-optional-locks', '-C', rootPath, 'ls-files', '-z'],
       { timeout: 10_000, maxBuffer: 64 * 1024 * 1024, env: safeGitEnv() },
       (err, stdout) => {
         if (err) return resolve(null);
