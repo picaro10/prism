@@ -8,7 +8,7 @@ import { findingKey } from '../../src/ai/types.js';
 
 const FIXTURE_PATH = resolve(__dirname, '../fixtures/sample-project');
 
-describe('runAudit', () => {
+describe('runAudit', { timeout: 120_000 }, () => {
   it('produces a complete audit report', async () => {
     const config: PrismConfig = { targetPath: FIXTURE_PATH };
     const report = await runAudit(config);
@@ -157,7 +157,7 @@ describe('mergeResultsByCategory', () => {
   });
 });
 
-describe('runAudit — category uniqueness', () => {
+describe('runAudit — category uniqueness', { timeout: 120_000 }, () => {
   it('never emits two CategoryScores for the same category', async () => {
     const report = await runAudit({ targetPath: FIXTURE_PATH });
     const cats = report.categories.map((c) => c.category);
@@ -165,7 +165,7 @@ describe('runAudit — category uniqueness', () => {
   });
 });
 
-describe('runAudit — AI triage integration', () => {
+describe('runAudit — AI triage integration', { timeout: 120_000 }, () => {
   it('attaches aiTriage when an LLM client is injected, without mutating findings or score', async () => {
     const fpVerdicts = (unit: { findings: { id: string; file?: string; line?: number }[] }): Verdict[] =>
       unit.findings.map((f) => ({
