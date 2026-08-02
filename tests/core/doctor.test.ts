@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseNodeMajor, checkNodeVersion, checkApiKeys, checkSemgrep, runDoctorChecks } from '../../src/core/doctor.js';
+import {
+  parseNodeMajor,
+  checkNodeVersion,
+  checkApiKeys,
+  checkSemgrep,
+  runDoctorChecks,
+} from '../../src/core/doctor.js';
 
 describe('parseNodeMajor', () => {
   it('extracts the major version', () => {

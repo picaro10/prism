@@ -155,9 +155,7 @@ export class SemgrepAnalyzer implements Analyzer {
     score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
 
     const summary =
-      kept.length === 0
-        ? 'Semgrep taint analysis: clean'
-        : `Semgrep taint analysis: ${kept.length} finding(s)`;
+      kept.length === 0 ? 'Semgrep taint analysis: clean' : `Semgrep taint analysis: ${kept.length} finding(s)`;
     return this.result(score, kept, summary);
   }
 

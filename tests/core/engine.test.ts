@@ -107,7 +107,12 @@ describe('runAudit', () => {
 });
 
 describe('mergeResultsByCategory', () => {
-  const mk = (category: AnalyzerResult['category'], score: number, ids: string[], applicable?: false): AnalyzerResult => ({
+  const mk = (
+    category: AnalyzerResult['category'],
+    score: number,
+    ids: string[],
+    applicable?: false,
+  ): AnalyzerResult => ({
     category,
     score,
     findings: ids.map((id) => ({
