@@ -20,7 +20,7 @@ describe('runAudit', () => {
     expect(report.overallScore).toBeGreaterThanOrEqual(0);
     expect(report.overallScore).toBeLessThanOrEqual(10);
     expect(report.categories.length).toBeGreaterThan(0);
-    expect(report.prismVersion).toBe('1.2.1');
+    expect(report.prismVersion).toBe('1.3.0');
   });
 
   it('includes all analyzer categories', async () => {

@@ -43,7 +43,7 @@ import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
 import { AgenticAnalyzer } from '../analyzers/agentic.js';
 import { WorkflowAnalyzer } from '../analyzers/workflow.js';
 
-const PRISM_VERSION = '1.2.1';
+const PRISM_VERSION = '1.3.0';
 
 /** Categories accepted by the `--only` filter (one per static analyzer). */
 export const ANALYZER_CATEGORIES = [

@@ -3,7 +3,9 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
-## [Unreleased]
+## [1.3.0] — 2026-08-02
+
+**CLI decomposition & hardening** — the post-audit refactor: modular CLI, deep report validation, a11y, coverage floor raised.
 
 ### Changed
 - **CLI split by command** — `src/cli/index.ts` (775 lines mixing declaration,

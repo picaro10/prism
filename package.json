@@ -1,6 +1,6 @@
 {
   "name": "@latenciatech/prism",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "AI-powered project auditor — static analysis + LLM intelligence",
   "type": "module",
   "bin": {
