@@ -1,7 +1,7 @@
 {
   "name": "@latenciatech/prism",
-  "version": "1.3.0",
-  "description": "AI-powered project auditor — static analysis + LLM intelligence",
+  "version": "1.4.0",
+  "description": "The security auditor for AI-written code and the pipelines that ship it — taint analysis, agentic/CI risks, multi-ecosystem SCA, adversarial AI triage",
   "type": "module",
   "bin": {
     "prism": "dist/cli/index.js"

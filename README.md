@@ -4,9 +4,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)
 
-**Static-analysis project auditor for code quality, security, and structural health.**
+**The security auditor for AI-written code — and the pipelines that ship it.**
 
-PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a local codebase and produces a scored audit report across eight dimensions. It combines **deterministic static analysis** with an **optional LLM triage layer**: the static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in and judges each finding in context. Both are shipped and working today.
+PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) built for the codebases the agentic
+era actually produces: fast-growing, largely AI-written, wired to agent tools and CI pipelines that
+deploy on every push. It scans a local codebase and produces a scored audit report across eight
+dimensions — **taint dataflow** (SQLi/XSS/SSRF/traversal/deserialization via curated semgrep rules),
+**secrets**, **AI-agent risks** (shell injection in tools, secrets in prompts, prompt injection,
+fail-open gates), **CI/CD workflow risks** (pwn requests, script injection, unpinned actions),
+**multi-ecosystem known vulnerabilities** (npm audit + OSV.dev for Python/Rust/Go/PHP/Ruby), plus
+structure, tests, Docker and consistency. Security-relevant rules map to **CWE/OWASP**, and SARIF
+output feeds GitHub Code Scanning directly.
+
+It combines **deterministic static analysis** with an **optional adversarial LLM triage layer**: the
+static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in
+and re-judges every finding in context — the pass that kills the false positives static security
+tools are famous for. Both are shipped and working today, and PRISM audits itself with them in CI.
 
 ---
 

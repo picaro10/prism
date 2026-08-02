@@ -3,7 +3,12 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
-## [Unreleased]
+## [1.4.0] — 2026-08-02
+
+**The security release** — three pillars that reposition PRISM as the security
+auditor for AI-written code and the pipelines that ship it: real taint/dataflow
+analysis (semgrep + adversarial AI triage), multi-ecosystem SCA (OSV.dev), and
+CWE/OWASP metadata across the catalog with SARIF tags.
 
 ### Added
 - **Semgrep taint analysis in the security category.** When semgrep is on PATH,
