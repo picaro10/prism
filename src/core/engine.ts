@@ -43,6 +43,7 @@ import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
 import { AgenticAnalyzer } from '../analyzers/agentic.js';
 import { WorkflowAnalyzer } from '../analyzers/workflow.js';
 import { SemgrepAnalyzer } from '../analyzers/semgrep.js';
+import { OsvAnalyzer } from '../analyzers/osv.js';
 
 const PRISM_VERSION = '1.3.0';
 
@@ -83,6 +84,7 @@ function createAnalyzers(): Analyzer[] {
     new AgenticAnalyzer(),
     new WorkflowAnalyzer(),
     new SemgrepAnalyzer(),
+    new OsvAnalyzer(),
   ];
 }
 

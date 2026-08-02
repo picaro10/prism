@@ -15,7 +15,7 @@ PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) that scans a loc
 | Category | Weight | What it analyzes |
 |---|---|---|
 | **Security** | 2.0× | Hardcoded secrets, API keys, tokens; `.env` files committed to the repo; Shannon-entropy anomalies. Plus **taint/dataflow analysis** (`SG-*`) when [semgrep](https://semgrep.dev) is installed: SQLi, XSS, SSRF, path traversal, deserialization and command/code injection traced from user input to sink, in JS/TS and Python, with CWE/OWASP metadata. Optional — without semgrep the category degrades to a notice, never a penalty. |
-| **Dependencies** | 1.5× | Lock file presence; wildcard versions (`*`, `^`, `~` in sensitive positions); `npm audit` vulnerabilities; Python `requirements.txt` unpinned versions; `engines` field. |
+| **Dependencies** | 1.5× | Lock file presence; wildcard versions (`*`, `^`, `~` in sensitive positions); `npm audit` vulnerabilities; Python `requirements.txt` unpinned versions; `engines` field. Plus **multi-ecosystem SCA via [OSV.dev](https://osv.dev)**: known vulnerabilities in `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.mod`, `composer.lock` and `Gemfile.lock` (`DEP-OSV-*`). |
 | **Tests** | 1.5× | Test suite existence; test-to-source ratio; decorative tests (zero assertions in entire file); empty test files; skipped/disabled tests; snapshot overuse; tests with no SUT import. |
 | **Structure** | 1.0× | README, `.gitignore`, linter config, `tsconfig`; flat-root dumps; excessive nesting; god files (`STR-011`: >400 / >600 / >900 / >1500 LOC with tiered severity); circular import dependencies (`STR-012`, via Tarjan SCC on the resolved import graph); dead files (`STR-013`: TS/JS source nothing reaches — counts type-only imports, tsconfig aliases, package.json refs, path strings in code/HTML/Dockerfiles/shell, shebang and convention entries; skips itself if a tsconfig is unparseable). |
 | **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0`. |
@@ -539,7 +539,8 @@ was inspected", not "deep audit passed":
 | Area | Support |
 |---|---|
 | TypeScript / JavaScript | **Full** — all nine analyzers, import graph, dead-file and cycle detection, taint analysis (with semgrep) |
-| Python | Partial — dependencies (`requirements.txt` pinning), basic structure, and taint analysis (with semgrep) |
+| Python | Partial — dependencies (`requirements.txt` pinning, OSV.dev advisories), basic structure, and taint analysis (with semgrep) |
+| Rust / Go / PHP / Ruby | Dependencies — known-vulnerability check of `Cargo.lock`, `go.mod`, `composer.lock`, `Gemfile.lock` via OSV.dev |
 | Docker / Compose | Full — Dockerfile and docker-compose checks |
 | GitHub Actions | Full — workflow risk analysis cross-checked against the repo (other CI systems: not yet) |
 | Secrets / entropy | Language-agnostic — any text file |

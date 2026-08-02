@@ -17,6 +17,14 @@ All notable changes to PRISM are documented here. The format is based on
   (`SEC-SEMGREP-MISSING`), never a penalty; an installed-but-failing semgrep
   reports `SEC-SEMGREP-ERROR` (unknown ≠ clean). Output is capped at 200
   findings (`SEC-SEMGREP-TRUNCATED`).
+- **Multi-ecosystem SCA via OSV.dev.** Pinned lockfiles beyond npm —
+  `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.mod`,
+  `composer.lock`, `Gemfile.lock` — are parsed and checked against the public
+  OSV.dev API. Critical/high advisories become `DEP-OSV-CRITICAL`/`DEP-OSV-HIGH`
+  under `dependencies` (npm-audit parity: -2/-1); lower or unclassified ones
+  group into one `DEP-OSV-LOWER` note; an unreachable API reports
+  `DEP-OSV-SKIP` (unknown ≠ clean). Dynamic external signal: it informs —
+  never gate CI on its counts. Offline-safe: no lockfiles, no network call.
 - **`prism doctor` reports semgrep** (ok + version, or a warn with the install
   hint).
 - The engine now merges same-category analyzer results into one
