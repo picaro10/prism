@@ -1,0 +1,3 @@
+# Force LF on checkout everywhere — the Windows CI runner's autocrlf used to
+# rewrite every file to CRLF and Biome's formatter flagged every line.
+* text=auto eol=lf
