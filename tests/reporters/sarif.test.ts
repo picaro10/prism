@@ -81,4 +81,36 @@ describe('formatSarifReport', () => {
     const doc = JSON.parse(formatSarifReport(report([finding({ id: 'SEC-1', severity: 'critical' })])));
     expect(doc.runs[0].tool.driver.rules[0].properties['security-severity']).toBe('9.5');
   });
+
+  it('tags catalog rules with their CWE and OWASP identifiers', () => {
+    const doc = JSON.parse(formatSarifReport(report([finding({ id: 'AGT-001', severity: 'high' })])));
+    const tags = doc.runs[0].tool.driver.rules[0].properties.tags;
+    expect(tags).toContain('security');
+    expect(tags).toContain('external/cwe/cwe-78');
+    expect(tags).toContain('external/owasp/a03:2021');
+  });
+
+  it('tags semgrep findings from their carried metadata', () => {
+    const doc = JSON.parse(
+      formatSarifReport(
+        report([
+          finding({
+            id: 'SG-SQLI-TAINTED-QUERY',
+            severity: 'critical',
+            meta: { engine: 'semgrep', cwe: 'CWE-89', owasp: 'A03:2021 - Injection' },
+          }),
+        ]),
+      ),
+    );
+    const tags = doc.runs[0].tool.driver.rules[0].properties.tags;
+    expect(tags).toContain('external/cwe/cwe-89');
+    expect(tags).toContain('external/owasp/a03:2021');
+  });
+
+  it('leaves quality rules untagged — no CWE theater', () => {
+    const doc = JSON.parse(formatSarifReport(report([finding({ id: 'CON-001', category: 'consistency' })])));
+    const tags = doc.runs[0].tool.driver.rules[0].properties.tags;
+    expect(tags.some((t: string) => t.startsWith('external/'))).toBe(false);
+    expect(tags).not.toContain('security');
+  });
 });

@@ -1,4 +1,5 @@
 import type { AuditReport, Finding, Severity } from '../core/types.js';
+import { ruleMetadataFor } from '../core/rule-metadata.js';
 import { writeReportFile } from './write.js';
 
 /** SARIF result levels; PRISM severities map onto the three SARIF levels. */
@@ -55,6 +56,17 @@ export function formatSarifReport(report: AuditReport): string {
   const rulesById = new Map<string, SarifRule>();
   for (const f of report.findings) {
     if (!rulesById.has(f.id)) {
+      // CWE/OWASP from the curated catalog (or the finding's own metadata for
+      // engines like semgrep) become the standard Code Scanning tag forms.
+      const secMeta = ruleMetadataFor(f.id, f.meta);
+      const tags: string[] = [f.category, f.severity];
+      if (secMeta) {
+        tags.push(
+          'security',
+          `external/cwe/${secMeta.cwe.toLowerCase()}`,
+          `external/owasp/${secMeta.owasp.toLowerCase()}`,
+        );
+      }
       rulesById.set(f.id, {
         id: f.id,
         name: f.id,
@@ -63,7 +75,7 @@ export function formatSarifReport(report: AuditReport): string {
         properties: {
           category: f.category,
           'security-severity': securitySeverity(f.severity),
-          tags: [f.category, f.severity],
+          tags: [...new Set(tags)],
         },
       });
     }

@@ -25,6 +25,15 @@ All notable changes to PRISM are documented here. The format is based on
   group into one `DEP-OSV-LOWER` note; an unreachable API reports
   `DEP-OSV-SKIP` (unknown ≠ clean). Dynamic external signal: it informs —
   never gate CI on its counts. Offline-safe: no lockfiles, no network call.
+- **CWE / OWASP Top 10 (2021) mapping across the rule catalog.** Every
+  security-relevant rule (secrets, taint, agentic, workflow, docker, dependency
+  advisories) maps to a CWE and an OWASP category in
+  `src/core/rule-metadata.ts` (documented in `docs/rules/cwe-owasp.md`). SARIF
+  rules now carry `external/cwe/…` and `external/owasp/…` tags next to the
+  existing `security-severity`, so GitHub Code Scanning classifies PRISM
+  alerts like CodeQL/Snyk output. Quality rules deliberately stay unmapped —
+  no CWE theater. Tests keep the map, the docs page, and the semgrep rule
+  pack in sync.
 - **`prism doctor` reports semgrep** (ok + version, or a warn with the install
   hint).
 - The engine now merges same-category analyzer results into one

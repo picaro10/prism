@@ -164,7 +164,10 @@ prism analyze . --baseline origin/main --fail-on critical --min-score 0
 
 **SARIF for GitHub Code Scanning.** `--sarif prism.sarif` writes a SARIF 2.1.0 document; upload it
 with `github/codeql-action/upload-sarif` and findings appear as inline annotations on the PR and
-in the repo's Security tab, ranked by `security-severity`.
+in the repo's Security tab, ranked by `security-severity`. Every security-relevant rule carries a
+**CWE and OWASP Top 10 (2021) mapping** (`external/cwe/…` / `external/owasp/…` tags — see
+[docs/rules/cwe-owasp.md](docs/rules/cwe-owasp.md)), so PRISM alerts classify and group alongside
+CodeQL or Snyk output.
 
 **JSON output** (`-o json`) is a stable, documented interface: with `-f` it writes the report
 file; without `-f` it prints **only** the JSON to stdout (all logs go to stderr), so it pipes

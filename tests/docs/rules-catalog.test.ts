@@ -54,6 +54,22 @@ describe('rule catalog (docs/rules) stays in sync with the analyzers', () => {
     expect(stale).toEqual([]);
   });
 
+  it('every RULE_METADATA key refers to a rule that exists in source', async () => {
+    const { RULE_METADATA } = await import('../../src/core/rule-metadata.js');
+    const ids = new Set(ruleIdsInSource());
+    const ghosts = Object.keys(RULE_METADATA).filter((id) => !ids.has(id));
+    expect(ghosts).toEqual([]);
+  });
+
+  it('the CWE/OWASP page documents exactly the RULE_METADATA entries', async () => {
+    const { RULE_METADATA } = await import('../../src/core/rule-metadata.js');
+    const page = readFileSync(join(ROOT, 'docs/rules/cwe-owasp.md'), 'utf-8');
+    const documented = new Set([...page.matchAll(/^\| `([A-Z]{2,4}-[A-Z0-9-]+)`/gm)].map((m) => m[1]));
+    const keys = new Set(Object.keys(RULE_METADATA));
+    expect([...keys].filter((id) => !documented.has(id))).toEqual([]); // mapped but not documented
+    expect([...documented].filter((id) => !keys.has(id))).toEqual([]); // documented but not mapped
+  });
+
   it('sanity: the extractor sees a healthy number of rules, both declaration styles', () => {
     const ids = ruleIdsInSource();
     expect(ids.length).toBeGreaterThan(60);

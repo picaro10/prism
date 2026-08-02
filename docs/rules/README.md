@@ -17,6 +17,10 @@ primary design constraint, and a rule you can't trust is worse than no rule.
 
 Rule IDs are stable: reports, suppressions, SARIF output, and the baseline gate all key on them.
 
+Every security-relevant rule also carries a **CWE and OWASP Top 10 (2021) mapping** — see
+[cwe-owasp.md](cwe-owasp.md). The SARIF output tags rules with them (`external/cwe/…`,
+`external/owasp/…`) so GitHub Code Scanning ranks PRISM alerts alongside CodeQL/Snyk output.
+
 ## Suppressing a rule
 
 Any finding can be accepted with a **justified suppression** in `prism.config.json` — rule id,
