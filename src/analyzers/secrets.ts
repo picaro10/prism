@@ -8,6 +8,7 @@ import {
   type FileContext,
 } from '../utils/file-context.js';
 import { loadPrismIgnore } from '../utils/prismignore.js';
+import { gitTrackedFiles } from '../utils/git-files.js';
 import { extname, basename } from 'node:path';
 
 /** File extensions worth scanning for secrets */
@@ -86,21 +87,39 @@ export class SecretsAnalyzer implements Analyzer {
     // --- Check: .env file committed ---
     // Skip .env files in non-user-authored contexts (e.g. a test fixture's .env)
     // so we don't raise a project-level critical for intentional scaffolding.
-    const envFiles = scan.files.filter(
-      (f) =>
-        !isExcludedContext(classifyFile(f)) &&
-        (basename(f) === '.env' || (basename(f).startsWith('.env.') && !isSafeEnvFile(f))),
-    );
+    const isRealEnvFile = (f: string): boolean =>
+      !isExcludedContext(classifyFile(f)) &&
+      (basename(f) === '.env' || (basename(f).startsWith('.env.') && !isSafeEnvFile(f)));
 
-    if (envFiles.length > 0) {
+    const envFiles = scan.files.filter(isRealEnvFile);
+
+    // The inventory alone has a blind spot: it is filtered through .gitignore,
+    // and ignoring a file does not untrack it. A .env committed BEFORE being
+    // gitignored stays in the repo while vanishing from scan.files — so ask
+    // the git index directly. Degrades to [] when git is unavailable.
+    let trackedEnvFiles: string[] = [];
+    if (scan.meta.hasGit) {
+      const tracked = await gitTrackedFiles(scan.rootPath);
+      if (tracked) trackedEnvFiles = tracked.filter(isRealEnvFile);
+    }
+
+    const allEnvFiles = [...new Set([...envFiles, ...trackedEnvFiles])];
+    if (allEnvFiles.length > 0) {
+      const trackedNote =
+        trackedEnvFiles.length > 0
+          ? ` ${trackedEnvFiles.length} of these are tracked in git (${trackedEnvFiles.join(', ')}) — actually committed; adding .env to .gitignore later does NOT untrack it.`
+          : ' If this is a git repo, these may be committed.';
       findings.push({
         id: 'SEC-ENV-COMMITTED',
         category: 'security',
         severity: 'critical',
         title: '.env file present in project',
-        description: `Found ${envFiles.length} .env file(s) that may contain secrets: ${envFiles.join(', ')}. If this is a git repo, these may be committed.`,
-        suggestion: 'Add .env to .gitignore and use .env.example for templates.',
-        meta: { files: envFiles },
+        description: `Found ${allEnvFiles.length} .env file(s) that may contain secrets: ${allEnvFiles.join(', ')}.${trackedNote}`,
+        suggestion:
+          trackedEnvFiles.length > 0
+            ? 'Remove it from the index (git rm --cached), rotate every credential it contains, and use .env.example for templates.'
+            : 'Add .env to .gitignore and use .env.example for templates.',
+        meta: { files: allEnvFiles, trackedInGit: trackedEnvFiles },
       });
       score -= 2;
     }
@@ -132,6 +151,13 @@ export class SecretsAnalyzer implements Analyzer {
     // --- Scan files for secret patterns ---
     const filesToScan = scan.files.filter((f) => shouldScanFile(f));
 
+    // Honest coverage accounting: "N files scanned" must mean files actually
+    // READ, and anything silently dropped (too large, unreadable) must be
+    // said out loud — a skip is missing coverage, not a clean result.
+    let scannedCount = 0;
+    let skippedLarge = 0;
+    let readErrors = 0;
+
     for (const file of filesToScan) {
       // Skip files excluded by .prismignore
       if (prismIgnore.ignores(file)) continue;
@@ -150,7 +176,11 @@ export class SecretsAnalyzer implements Analyzer {
         const content = await readFile(file);
 
         // Skip files that are too large
-        if (content.length > MAX_FILE_SIZE) continue;
+        if (content.length > MAX_FILE_SIZE) {
+          skippedLarge++;
+          continue;
+        }
+        scannedCount++;
 
         // Content-based context: detect security tools (scanners, validators)
         const effectiveContext =
@@ -235,7 +265,8 @@ export class SecretsAnalyzer implements Analyzer {
           }
         }
       } catch {
-        // File read error — skip silently
+        // File read error — counted and reported in the summary, not silent
+        readErrors++;
       }
     }
 
@@ -246,7 +277,7 @@ export class SecretsAnalyzer implements Analyzer {
       category: 'security',
       score: Math.max(0, Math.min(10, Math.round(score * 10) / 10)),
       findings: deduped,
-      summary: buildSummary(deduped, filesToScan.length),
+      summary: buildSummary(deduped, scannedCount, skippedLarge, readErrors),
     };
   }
 }
@@ -381,11 +412,13 @@ function deduplicateFindings(findings: Finding[]): Finding[] {
   });
 }
 
-function buildSummary(findings: Finding[], filesScanned: number): string {
+function buildSummary(findings: Finding[], filesScanned: number, skippedLarge: number, readErrors: number): string {
   const criticals = findings.filter((f) => f.severity === 'critical').length;
   const highs = findings.filter((f) => f.severity === 'high').length;
 
   const parts: string[] = [`${filesScanned} files scanned for secrets`];
+  if (skippedLarge > 0) parts.push(`${skippedLarge} skipped (>2MB, not scanned)`);
+  if (readErrors > 0) parts.push(`${readErrors} unreadable (not scanned)`);
 
   if (findings.length === 0) {
     parts.push('No secrets detected');

@@ -40,6 +40,39 @@ const categorySchema = z
   })
   .loose();
 
+// The HTML and CLI renderers dereference projectMeta unconditionally
+// (m.stack.primary, m.frameworks.length, …) and every PRISM since v1.0.0 has
+// written it — so it is REQUIRED, with exactly the fields the renderers touch.
+const projectMetaSchema = z
+  .object({
+    stack: z
+      .object({
+        primary: z.string(),
+        secondary: z.array(z.string()),
+        runtime: z.string().optional(),
+      })
+      .loose(),
+    totalFiles: z.number(),
+    hasGit: z.boolean(),
+    hasDocker: z.boolean(),
+    hasCi: z.boolean(),
+    packageManager: z.string().optional(),
+    frameworks: z.array(z.string()),
+  })
+  .loose();
+
+// AI sections are optional (only present after --ai / triage), but when
+// present they must hold what the renderers index them by: findingKey.
+const verdictSchema = z.object({ findingKey: z.string() }).loose();
+const aiTriageSchema = z
+  .object({
+    verdicts: z.array(verdictSchema),
+    summary: z.object({}).loose(),
+  })
+  .loose();
+const remediationSchema = z.object({ findingKey: z.string(), fix: z.string() }).loose();
+const suppressedFindingSchema = z.object({ finding: findingSchema, reason: z.string() }).loose();
+
 const reportSchema = z
   .object({
     projectName: z.string().min(1),
@@ -47,6 +80,11 @@ const reportSchema = z
     overallScore: z.number(),
     categories: z.array(categorySchema),
     findings: z.array(findingSchema),
+    projectMeta: projectMetaSchema,
+    aiTriage: aiTriageSchema.optional(),
+    aiRemediation: z.array(remediationSchema).optional(),
+    suppressed: z.array(suppressedFindingSchema).optional(),
+    suppressionWarnings: z.array(z.string()).optional(),
     prismVersion: z.string().optional(),
     startedAt: z.string().optional(),
     completedAt: z.string().optional(),

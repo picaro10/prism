@@ -100,6 +100,10 @@ export function registerFindingCommand(program: Command): void {
     .argument('<reportPath>', 'Path to a JSON report produced by `analyze -o json`')
     .argument('<findingKey>', 'The finding key, e.g. "SEC-ENV-VALUE|src/config.ts|4"')
     .option('--context <n>', 'Lines of code context around the flagged line (default 3)', '3')
+    .option(
+      '--root <path>',
+      'Project root to read the snippet from (required when the path recorded in the report is outside the current directory)',
+    )
     .action(async (reportPath: string, key: string, options: Record<string, string>) => {
       const report = await loadReportOrExit(reportPath);
 
@@ -116,13 +120,22 @@ export function registerFindingCommand(program: Command): void {
       // not have it). The bundle degrades to a null snippet rather than failing.
       let fileContent: string | null = null;
       if (match.file) {
-        try {
-          // Confined read — the report (and the file paths inside it) is
-          // untrusted input and must not reach outside its own projectPath.
-          const { confinedReader } = await import('../../utils/safe-read.js');
-          fileContent = await confinedReader(report.projectPath)(match.file);
-        } catch {
-          fileContent = null;
+        // Confined read — the report (and the file paths inside it) is
+        // untrusted input: reads never leave the project root, and the root
+        // itself is only honored inside the current directory (the report
+        // chose it). Outside cwd → degrade to a null snippet unless --root
+        // asserts the location explicitly.
+        const { checkReportRoot } = await import('../shared.js');
+        const rootCheck = checkReportRoot(report.projectPath, options.root ? String(options.root) : undefined);
+        if ('reason' in rootCheck) {
+          console.error(chalk.yellow(`  ⚠ Snippet omitted: ${rootCheck.reason} (pass --root <path> to allow it)`));
+        } else {
+          try {
+            const { confinedReader } = await import('../../utils/safe-read.js');
+            fileContent = await confinedReader(rootCheck.root)(match.file);
+          } catch {
+            fileContent = null;
+          }
         }
       }
 

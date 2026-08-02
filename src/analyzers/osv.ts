@@ -56,8 +56,12 @@ export class OsvAnalyzer implements Analyzer {
   constructor(private readonly fetchImpl: OsvFetch = defaultFetch) {}
 
   async analyze(scan: ProjectScan, readFile: FileReader): Promise<AnalyzerResult> {
-    const { packages, files } = await this.collectPackages(scan, readFile);
+    const { packages, files, zeroYield, droppedByCap } = await this.collectPackages(scan, readFile);
+    const incomplete = incompleteFinding(zeroYield, droppedByCap);
     if (packages.length === 0) {
+      if (incomplete) {
+        return this.result(9.5, [incomplete], `OSV: 0 packages checked · ${incompleteNote(zeroYield, droppedByCap)}`);
+      }
       return this.result(10, [], 'OSV: no non-npm lockfiles to check');
     }
 
@@ -83,6 +87,13 @@ export class OsvAnalyzer implements Analyzer {
     }
 
     if (vulnerable.length === 0) {
+      if (incomplete) {
+        return this.result(
+          9.5,
+          [incomplete],
+          `OSV: ${packages.length} package(s) across ${files.length} lockfile(s) — no known vulnerabilities · ${incompleteNote(zeroYield, droppedByCap)}`,
+        );
+      }
       return this.result(
         10,
         [],
@@ -95,6 +106,8 @@ export class OsvAnalyzer implements Analyzer {
     const severityByVuln = await this.classifyVulns(vulnerable);
     const findings = this.buildFindings(vulnerable, severityByVuln, truncatedCount);
 
+    if (incomplete) findings.push(incomplete);
+
     let score = 10;
     for (const f of findings) {
       if (f.id === 'DEP-OSV-CRITICAL') score -= 2;
@@ -102,6 +115,7 @@ export class OsvAnalyzer implements Analyzer {
       // Unclassified advisories carry a real penalty — the same weight the
       // dependencies analyzer gives an audit that could not run at all.
       else if (f.id === 'DEP-OSV-UNKNOWN') score -= 1;
+      else if (f.id === 'DEP-OSV-INCOMPLETE') score -= 0.5;
       else score -= 0.2;
     }
     score = Math.max(0, Math.round(score * 10) / 10);
@@ -112,16 +126,21 @@ export class OsvAnalyzer implements Analyzer {
       findings,
       `OSV: ${vulnCount} known advisories across ${vulnerable.length} of ${packages.length} package(s)${
         unclassified ? ` · ${unclassified} unclassified (severity unknown)` : ''
-      }`,
+      }${incomplete ? ` · ${incompleteNote(zeroYield, droppedByCap)}` : ''}`,
     );
   }
 
   private async collectPackages(
     scan: ProjectScan,
     readFile: FileReader,
-  ): Promise<{ packages: VulnerablePackage[]; files: string[] }> {
+  ): Promise<{ packages: VulnerablePackage[]; files: string[]; zeroYield: string[]; droppedByCap: number }> {
     const packages: VulnerablePackage[] = [];
     const files: string[] = [];
+    // Coverage gaps must be REPORTED, not silently absorbed: a lockfile that
+    // was unreadable or yielded nothing (unparseable/empty), and packages
+    // dropped past the MAX_PACKAGES cap, are unchecked — unknown, not clean.
+    const zeroYield: string[] = [];
+    let droppedByCap = 0;
     const seen = new Set<string>();
     for (const file of scan.files) {
       if (!(basename(file) in LOCKFILE_PARSERS)) continue;
@@ -130,18 +149,27 @@ export class OsvAnalyzer implements Analyzer {
       try {
         content = await readFile(file);
       } catch {
+        zeroYield.push(file);
         continue;
       }
+      // A genuinely empty lockfile has zero deps — nothing unchecked. Only a
+      // NON-empty file that yields no packages is a parse-coverage gap.
+      if (content.trim() === '') continue;
       const parsed = parseLockfile(basename(file), content);
       if (parsed.length > 0) files.push(file);
+      else zeroYield.push(file);
       for (const pkg of parsed) {
         const key = `${pkg.ecosystem}|${pkg.name}|${pkg.version}`;
-        if (seen.has(key) || seen.size >= MAX_PACKAGES) continue;
+        if (seen.has(key)) continue;
+        if (seen.size >= MAX_PACKAGES) {
+          droppedByCap++;
+          continue;
+        }
         seen.add(key);
         packages.push({ pkg, file, vulnIds: [] });
       }
     }
-    return { packages, files };
+    return { packages, files, zeroYield, droppedByCap };
   }
 
   /** POST /v1/querybatch in chunks; fills vulnIds and returns the hit entries. */
@@ -314,4 +342,34 @@ export class OsvAnalyzer implements Analyzer {
   private result(score: number, findings: Finding[], summary: string): AnalyzerResult {
     return { category: 'dependencies', score, findings, summary };
   }
+}
+
+/** Short human-readable coverage-gap note for summaries. */
+function incompleteNote(zeroYield: string[], droppedByCap: number): string {
+  const parts: string[] = [];
+  if (zeroYield.length > 0) parts.push(`${zeroYield.length} lockfile(s) yielded no packages (unreadable/unparseable)`);
+  if (droppedByCap > 0) parts.push(`${droppedByCap} package(s) beyond the ${MAX_PACKAGES}-package cap NOT checked`);
+  return parts.join(' · ');
+}
+
+/**
+ * A coverage gap is a finding, not a footnote: lockfiles that yielded nothing
+ * and packages dropped past the cap were never checked against OSV — their
+ * advisory status is unknown, and unknown is not clean.
+ */
+function incompleteFinding(zeroYield: string[], droppedByCap: number): Finding | null {
+  if (zeroYield.length === 0 && droppedByCap === 0) return null;
+  return {
+    id: 'DEP-OSV-INCOMPLETE',
+    category: 'dependencies',
+    severity: 'low',
+    title: 'OSV coverage incomplete — some dependencies were NOT checked',
+    description: `${incompleteNote(zeroYield, droppedByCap)}. ${
+      zeroYield.length > 0 ? `Affected lockfile(s): ${zeroYield.slice(0, 5).join(', ')}. ` : ''
+    }Unchecked dependencies have UNKNOWN advisory status — not clean.`,
+    ...(zeroYield.length > 0 ? { file: zeroYield[0] } : {}),
+    suggestion:
+      'Verify the lockfiles are valid and readable; for very large dependency trees run osv-scanner directly for full coverage.',
+    meta: { engine: 'osv', zeroYield, droppedByCap, cap: MAX_PACKAGES },
+  };
 }

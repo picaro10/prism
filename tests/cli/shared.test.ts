@@ -2,7 +2,14 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EXIT, parseVoteModels, usageError, loadReportOrExit } from '../../src/cli/shared.js';
+import {
+  EXIT,
+  parseVoteModels,
+  usageError,
+  loadReportOrExit,
+  checkReportRoot,
+  loadAllowlistedEnv,
+} from '../../src/cli/shared.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,6 +22,56 @@ function trapExit(): void {
   }) as never);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 }
+
+describe('checkReportRoot', () => {
+  it('accepts the current working directory itself', () => {
+    const r = checkReportRoot(process.cwd());
+    expect('root' in r).toBe(true);
+  });
+
+  it('accepts a subdirectory of cwd', () => {
+    const r = checkReportRoot(join(process.cwd(), 'src'));
+    expect('root' in r).toBe(true);
+  });
+
+  it('refuses a root OUTSIDE cwd (manipulated report must not read arbitrary dirs)', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'prism-outside-'));
+    try {
+      const r = checkReportRoot(outside);
+      expect('reason' in r).toBe(true);
+      if ('reason' in r) expect(r.reason).toContain('outside the current directory');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a nonexistent recorded path', () => {
+    const r = checkReportRoot('/definitely/not/a/real/path');
+    expect('reason' in r).toBe(true);
+  });
+
+  it('honors an explicit --root override even outside cwd (operator asserts trust)', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'prism-override-'));
+    try {
+      const r = checkReportRoot('/whatever/the/report/says', outside);
+      expect(r).toEqual({ root: outside });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a --root that is not a directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-badroot-'));
+    const file = join(dir, 'f.txt');
+    writeFileSync(file, 'x');
+    try {
+      const r = checkReportRoot('/whatever', file);
+      expect('reason' in r).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('parseVoteModels', () => {
   it('splits and trims a comma-separated list', () => {
@@ -48,6 +105,15 @@ describe('loadReportOrExit', () => {
         overallScore: 5,
         categories: [],
         findings: [],
+        projectMeta: {
+          stack: { primary: 'typescript', secondary: [] },
+          totalLoc: 0,
+          totalFiles: 1,
+          hasGit: false,
+          hasDocker: false,
+          hasCi: false,
+          frameworks: [],
+        },
       }),
     );
     try {
@@ -94,5 +160,62 @@ describe('loadReportOrExit', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('loadAllowlistedEnv', () => {
+  it('imports only PRISM-consumed keys, never the target project secrets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-env-'));
+    const envPath = join(dir, '.env');
+    writeFileSync(
+      envPath,
+      [
+        'ANTHROPIC_API_KEY="sk-test-abc"',
+        'PRISM_FUTURE_FLAG=on',
+        'DATABASE_URL=postgres://real:secret@prod/db',
+        'AWS_SECRET_ACCESS_KEY=leakme',
+        'export OPENROUTER_API_KEY=or-key',
+      ].join('\n'),
+    );
+    const saved = process.env;
+    try {
+      const {
+        ANTHROPIC_API_KEY: _a,
+        OPENROUTER_API_KEY: _o,
+        PRISM_FUTURE_FLAG: _p,
+        DATABASE_URL: _d,
+        AWS_SECRET_ACCESS_KEY: _k,
+        ...rest
+      } = saved;
+      process.env = { ...rest };
+      loadAllowlistedEnv(envPath);
+      expect(process.env.ANTHROPIC_API_KEY).toBe('sk-test-abc'); // quotes stripped
+      expect(process.env.OPENROUTER_API_KEY).toBe('or-key'); // export prefix ok
+      expect(process.env.PRISM_FUTURE_FLAG).toBe('on');
+      expect(process.env.DATABASE_URL).toBeUndefined(); // target secret NOT imported
+      expect(process.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    } finally {
+      process.env = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never overrides the real environment', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-env2-'));
+    const envPath = join(dir, '.env');
+    writeFileSync(envPath, 'ANTHROPIC_API_KEY=from-file\n');
+    const saved = process.env;
+    try {
+      process.env = { ...saved, ANTHROPIC_API_KEY: 'from-real-env' };
+      loadAllowlistedEnv(envPath);
+      expect(process.env.ANTHROPIC_API_KEY).toBe('from-real-env');
+    } finally {
+      process.env = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is a no-op for a missing file', () => {
+    expect(() => loadAllowlistedEnv('/nope/definitely/missing/.env')).not.toThrow();
   });
 });

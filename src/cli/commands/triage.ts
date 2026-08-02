@@ -5,7 +5,7 @@ import { applyAiTriage } from '../../ai/run.js';
 import { renderCliReport } from '../../reporters/cli.js';
 import { writeJsonReport } from '../../reporters/json.js';
 import type { PrismConfig, FileReader } from '../../core/types.js';
-import { parseVoteModels, usageError, loadReportOrExit } from '../shared.js';
+import { parseVoteModels, usageError, loadReportOrExit, checkReportRoot } from '../shared.js';
 
 export function registerTriageCommand(program: Command): void {
   program
@@ -22,6 +22,10 @@ export function registerTriageCommand(program: Command): void {
     .option('--no-ai-remediate', 'Skip the AI fix proposals for confirmed-real findings')
     .option('--ai-concurrency <n>', 'Max concurrent triage calls (default 5)')
     .option('--dry-run', 'Re-triage with canned responses — no network, no API key (demos/tests)', false)
+    .option(
+      '--root <path>',
+      'Project root to read code from (required when the path recorded in the report is outside the current directory)',
+    )
     .action(async (reportPath: string, options: Record<string, string | boolean>) => {
       const report = await loadReportOrExit(String(reportPath));
 
@@ -55,12 +59,22 @@ export function registerTriageCommand(program: Command): void {
         }
       }
 
-      // The report is untrusted input: confine every file read to the project
-      // root it names (no absolute paths, no ../ escapes), and say out loud
-      // which directory is about to be read — snippets go to the AI provider.
+      // The report is untrusted input: reads are confined to the project root
+      // (no absolute paths, no ../ escapes) — but the report also NAMES that
+      // root, so it is only honored inside the current directory; anything
+      // else needs an explicit --root. Snippets go to the AI provider, so say
+      // out loud which directory is about to be read.
+      const rootCheck = checkReportRoot(report.projectPath, options.root ? String(options.root) : undefined);
+      if ('reason' in rootCheck) {
+        usageError(
+          `Refusing to read code: ${rootCheck.reason}`,
+          'A saved report is untrusted input — PRISM only follows its recorded path into the current directory.',
+          'Run triage from inside the project, or assert the root explicitly with --root <path>.',
+        );
+      }
       const { confinedReader } = await import('../../utils/safe-read.js');
-      console.error(chalk.dim(`  Reading code from ${report.projectPath} (as recorded in the report)`));
-      const reader: FileReader = confinedReader(report.projectPath);
+      console.error(chalk.dim(`  Reading code from ${rootCheck.root}`));
+      const reader: FileReader = confinedReader(rootCheck.root);
       const aiConfig: Pick<
         PrismConfig,
         | 'aiModel'

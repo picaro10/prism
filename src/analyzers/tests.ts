@@ -218,7 +218,9 @@ export class TestsAnalyzer implements Analyzer {
 
         if (isPython) {
           // --- Check: Python skipped tests ---
-          const pySkipped = (content.match(/@pytest\.mark\.skip|@unittest\.skip|pytest\.skip\(/g) || []).length;
+          const pySkipped = (
+            stripStringLiterals(content).match(/@pytest\.mark\.skip|@unittest\.skip|pytest\.skip\(/g) || []
+          ).length;
           if (pySkipped > 0) {
             findings.push({
               id: 'TST-012',
@@ -406,9 +408,19 @@ export function findPythonDecorativeTests(content: string, _file: string): strin
 }
 
 /**
+ * Blank out single-line string literal CONTENTS so pattern counters don't
+ * match code that is merely quoted — a test file holding `'it.skip("x")'` as
+ * fixture DATA is not a skipped test (real FP: PRISM's own self-analysis).
+ * Multi-line template literals are beyond a line-based heuristic; accepted.
+ */
+export function stripStringLiterals(content: string): string {
+  return content.replace(/(["'`])(?:\\.|(?!\1)[^\n\\])*\1/g, '""');
+}
+
+/**
  * Count skipped tests in JS/TS files.
  */
-function countSkippedTests(content: string): number {
+export function countSkippedTests(content: string): number {
   const patterns = [
     /\bit\.skip\s*\(/g,
     /\btest\.skip\s*\(/g,
@@ -421,9 +433,10 @@ function countSkippedTests(content: string): number {
     /\bxtest\s*\(/g,
   ];
 
+  const withoutStrings = stripStringLiterals(content);
   let count = 0;
   for (const pattern of patterns) {
-    count += (content.match(pattern) || []).length;
+    count += (withoutStrings.match(pattern) || []).length;
   }
   return count;
 }

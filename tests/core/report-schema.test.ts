@@ -17,6 +17,15 @@ const validReport = {
   overallScore: 7.5,
   categories: [{ category: 'security', score: 7.5, findings: [validFinding], summary: 's' }],
   findings: [validFinding],
+  projectMeta: {
+    stack: { primary: 'typescript', secondary: [] },
+    totalLoc: 0,
+    totalFiles: 12,
+    hasGit: true,
+    hasDocker: false,
+    hasCi: true,
+    frameworks: [],
+  },
 };
 
 describe('parseReport', () => {
@@ -56,6 +65,40 @@ describe('parseReport', () => {
   it('rejects a missing projectPath (triage would have nothing to confine reads to)', () => {
     const { projectPath: _omitted, ...rest } = validReport;
     expect(parseReport(rest)).toBeNull();
+  });
+
+  it('rejects a report without projectMeta (HTML/CLI renderers dereference it unconditionally)', () => {
+    const { projectMeta: _omitted, ...rest } = validReport;
+    expect(parseReport(rest)).toBeNull();
+  });
+
+  it('rejects a projectMeta missing the fields the renderers touch', () => {
+    const broken = { ...validReport, projectMeta: { stack: { primary: 'ts' } } };
+    expect(parseReport(broken)).toBeNull();
+  });
+
+  it('rejects aiTriage verdicts without a findingKey (renderers index by it)', () => {
+    const broken = { ...validReport, aiTriage: { verdicts: [{ classification: 'real' }], summary: {} } };
+    expect(parseReport(broken)).toBeNull();
+  });
+
+  it('rejects aiRemediation entries without fix text', () => {
+    const broken = { ...validReport, aiRemediation: [{ findingKey: 'SEC-001|src/a.ts|3' }] };
+    expect(parseReport(broken)).toBeNull();
+  });
+
+  it('accepts valid aiTriage, aiRemediation, and suppressed sections', () => {
+    const full = {
+      ...validReport,
+      aiTriage: {
+        verdicts: [{ findingKey: 'SEC-001|src/a.ts|3', classification: 'real', confidence: 0.9, reasoning: 'r' }],
+        summary: { real: 1, falsePositive: 0, uncertain: 0 },
+      },
+      aiRemediation: [{ findingKey: 'SEC-001|src/a.ts|3', fix: 'do x', effort: 'low' }],
+      suppressed: [{ finding: validFinding, reason: 'accepted risk' }],
+      suppressionWarnings: ['stale entry'],
+    };
+    expect(parseReport(full)).not.toBeNull();
   });
 });
 

@@ -226,3 +226,64 @@ describe('OsvAnalyzer', () => {
     expect(res.score).toBe(9);
   });
 });
+
+describe('DEP-OSV-INCOMPLETE (coverage gaps are reported, not swallowed)', () => {
+  const cleanOsv: OsvFetch = async (url, init) => {
+    if (url.endsWith('/v1/querybatch')) {
+      const queries = (JSON.parse(init?.body ?? '{}') as { queries: unknown[] }).queries;
+      return { ok: true, status: 200, json: async () => ({ results: queries.map(() => ({})) }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  it('flags a non-empty lockfile that yields no packages (unparseable)', async () => {
+    const analyzer = new OsvAnalyzer(cleanOsv);
+    const reader: FileReader = async (p) => {
+      if (p === 'Cargo.lock') return 'garbage that is not TOML at all {{{';
+      if (p === 'requirements.txt') return REQUIREMENTS;
+      throw new Error(`unexpected read: ${p}`);
+    };
+    const result = await analyzer.analyze(mkScan(['Cargo.lock', 'requirements.txt']), reader);
+    const gap = result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE');
+    expect(gap).toBeDefined();
+    expect(gap?.description).toContain('Cargo.lock');
+    expect(result.summary).toContain('yielded no packages');
+  });
+
+  it('flags an unreadable lockfile even when it is the only one (score is not a clean 10)', async () => {
+    const analyzer = new OsvAnalyzer(cleanOsv);
+    const reader: FileReader = async () => {
+      throw new Error('EACCES');
+    };
+    const result = await analyzer.analyze(mkScan(['poetry.lock']), reader);
+    expect(result.score).toBeLessThan(10);
+    expect(result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE')).toBeDefined();
+  });
+
+  it('does NOT flag a genuinely empty lockfile (zero deps = nothing unchecked)', async () => {
+    const analyzer = new OsvAnalyzer(cleanOsv);
+    const reader: FileReader = async () => '\n\n';
+    const result = await analyzer.analyze(mkScan(['requirements.txt']), reader);
+    expect(result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE')).toBeUndefined();
+    expect(result.score).toBe(10);
+  });
+});
+
+describe('MAX_PACKAGES cap honesty', () => {
+  it('reports packages dropped past the 2000-package cap instead of silently skipping them', async () => {
+    const manyPins = Array.from({ length: 2005 }, (_, i) => `pkg${i}==1.0.0`).join('\n');
+    const fetch: OsvFetch = async (url, init) => {
+      if (url.endsWith('/v1/querybatch')) {
+        const queries = (JSON.parse(init?.body ?? '{}') as { queries: unknown[] }).queries;
+        return { ok: true, status: 200, json: async () => ({ results: queries.map(() => ({})) }) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    const analyzer = new OsvAnalyzer(fetch);
+    const result = await analyzer.analyze(mkScan(['requirements.txt']), async () => manyPins);
+    const gap = result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE');
+    expect(gap).toBeDefined();
+    expect(gap?.description).toContain('5 package(s) beyond the 2000-package cap');
+    expect(result.score).toBeLessThan(10);
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { diffByFingerprint, reportOfFindings } from '../../src/core/new-code-gate.js';
+import { assignFingerprints } from '../../src/core/fingerprint.js';
 import type { AuditReport, Finding } from '../../src/core/types.js';
 
 function finding(fingerprint: string, p: Partial<Finding> = {}): Finding {
@@ -44,6 +45,26 @@ describe('diffByFingerprint', () => {
     const d = diffByFingerprint(baseline, current);
     expect(d.newFindings).toHaveLength(0);
     expect(d.fixedFindings).toHaveLength(0);
+    expect(d.existingCount).toBe(1);
+  });
+
+  it('flags a SECOND wildcard dep as new even though both are DEP-002 on package.json', async () => {
+    // Regression: line-less findings used to share one fingerprint (id+file),
+    // so adding a second wildcard dependency looked preexisting to the gate.
+    const dep002 = (name: string): Finding => ({
+      id: 'DEP-002',
+      category: 'dependencies',
+      severity: 'high',
+      title: `Wildcard version for ${name}`,
+      description: 'd',
+      file: 'package.json',
+    });
+    const baseFindings = [dep002('lodash')];
+    const currFindings = [dep002('lodash'), dep002('express')];
+    await assignFingerprints(baseFindings, async () => '{}');
+    await assignFingerprints(currFindings, async () => '{}');
+    const d = diffByFingerprint(report(baseFindings), report(currFindings));
+    expect(d.newFindings).toHaveLength(1);
     expect(d.existingCount).toBe(1);
   });
 

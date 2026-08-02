@@ -17,7 +17,9 @@ structure, tests, Docker and consistency. Security-relevant rules map to **CWE/O
 output feeds GitHub Code Scanning directly.
 
 It combines **deterministic static analysis** with an **optional adversarial LLM triage layer**: the
-static analysis works fully offline and needs no API key, while the AI enrichment (`--ai`) is opt-in
+static analysis needs no API key and degrades gracefully offline (the `npm audit`, OSV.dev and
+update checks use the network when available — offline they report explicit UNKNOWN findings,
+never a silent clean), while the AI enrichment (`--ai`) is opt-in
 and re-judges every finding in context — the pass that kills the false positives static security
 tools are famous for. Both are shipped and working today, and PRISM audits itself with them in CI.
 
@@ -36,7 +38,10 @@ tools are famous for. Both are shipped and working today, and PRISM audits itsel
 | **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell injection in agent tools (`AGT-001`), secrets (`AGT-002`) and external content (`AGT-004`) in LLM prompts, destructive tools without confirmation (`AGT-003`), public MCP binds (`AGT-005`), fail-open security gates (`AGT-006`). High-signal and conservative by design. |
 | **Workflow** | 1.0× | GitHub Actions risks — pwn requests (`pull_request_target` + PR-head checkout), script injection from event data, unpinned third-party actions, missing/over-broad permissions, triggers filtering nonexistent branches (a CI that never runs), fail-open gates, missing timeouts/concurrency/caching. Cross-checked against the real repository, not just the YAML. |
 
-The overall score is a weighted average of per-category scores, each on a 0–10 scale.
+The overall score is a weighted average of per-category scores, each on a 0–10 scale. It is a
+**heuristic indicator, not a calibrated metric**: penalties are hand-tuned against real projects
+and a regression benchmark, so treat the score as a consistent internal signal for tracking a
+codebase over time — not as a scientific measurement comparable across arbitrary projects.
 
 **Full rule catalog:** every rule id, severity, and its known false-positive traps are documented
 in [`docs/rules/`](docs/rules/README.md). A test keeps the catalog in sync with the analyzers —
@@ -356,8 +361,11 @@ from production code.
   `openai/gpt-4.1-mini` (cheap, for development); override with `--ai-model <slug>` (e.g.
   `--ai-model anthropic/claude-opus-4.8`). OpenRouter uses JSON mode instead of Anthropic-native
   structured outputs.
-- **Opt-in and offline-by-default.** Without `--ai`, PRISM makes no network calls and needs no
-  key. `--ai` fails fast if the selected provider's key is missing.
+- **Opt-in.** Without `--ai`, PRISM needs no key and **no source code ever leaves the machine**.
+  Three static checks do use the network when available — `npm audit` (registry advisory DB),
+  the OSV.dev lookup, and the npm update check — sending only package names/versions, never code;
+  offline, each reports an explicit UNKNOWN finding instead of a silent clean. `--ai` fails fast
+  if the selected provider's key is missing.
 - **Privacy note.** `--ai` sends snippets of the analyzed project's source (including the lines
   that triggered each finding — a flagged secret's line among them) to the selected external
   provider (Anthropic or OpenRouter). Do not use `--ai` on code you cannot share with a third

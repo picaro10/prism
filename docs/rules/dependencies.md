@@ -9,7 +9,8 @@
 | `DEP-005` | medium | No `test` script defined. |
 | `DEP-AUDIT-CRITICAL` | critical | `npm audit` reports critical vulnerabilities. |
 | `DEP-AUDIT-HIGH` | high | `npm audit` reports high vulnerabilities. |
-| `DEP-AUDIT-SKIP` | info | `npm audit` could not run (offline, no lock file) — audit coverage is unknown. |
+| `DEP-AUDIT-SKIP` | low | `npm audit` could not run (offline, no lock file) — audit coverage is unknown, not clean (carries a −1 penalty). |
+| `DEP-AUDIT-LOWER` | info | `npm audit` reports moderate/low vulnerabilities — visibility only, no score penalty. |
 | `DEP-PARSE-ERR` | high | `package.json` is not parseable. |
 | `DEP-PY-001` | medium | Unpinned versions in `requirements.txt`. |
 
@@ -27,6 +28,7 @@ Runs only when such a lockfile exists; lockfiles in fixture/vendor/template path
 | `DEP-OSV-LOWER` | low | Advisories **classified** below high severity (grouped into one note). |
 | `DEP-OSV-UNKNOWN` | medium | Advisories whose severity OSV.dev does not publish, or that exceeded the per-run classification budget. **Unknown severity is not low severity** — any of these may be a critical. |
 | `DEP-OSV-SKIP` | low | Lockfiles exist but OSV.dev was unreachable — advisory status is unknown, not clean. |
+| `DEP-OSV-INCOMPLETE` | low | Coverage gap: a non-empty lockfile yielded no packages (unreadable/unparseable), or packages beyond the 2000-package cap were not checked. Unchecked ≠ clean. |
 
 Severity resolution follows the `aliases` chain: about half of PyPI advisories are `PYSEC-*` records
 with no severity that mirror a `GHSA-*` one that has it. Skipping that hop understates severity

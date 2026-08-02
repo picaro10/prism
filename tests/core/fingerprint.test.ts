@@ -58,4 +58,45 @@ describe('assignFingerprints', () => {
     });
     expect(typeof findings[0].fingerprint).toBe('string');
   });
+
+  it('disambiguates line-less findings sharing id+file (two wildcard deps → two identities)', async () => {
+    // Two DEP-002 findings on package.json, no line: before the fix both
+    // hashed to id+file only, so the baseline diff conflated them.
+    const findings = [
+      finding({ id: 'DEP-002', file: 'package.json', title: 'Wildcard version for lodash' }),
+      finding({ id: 'DEP-002', file: 'package.json', title: 'Wildcard version for express' }),
+    ];
+    await assignFingerprints(findings, async () => 'irrelevant');
+    expect(findings[0].fingerprint).not.toBe(findings[1].fingerprint);
+  });
+
+  it('keeps the first occurrence on the legacy fingerprint (baseline compatibility)', async () => {
+    const solo = [finding({ id: 'DEP-002', file: 'package.json' })];
+    await assignFingerprints(solo, async () => 'x');
+    const pair = [finding({ id: 'DEP-002', file: 'package.json' }), finding({ id: 'DEP-002', file: 'package.json' })];
+    await assignFingerprints(pair, async () => 'x');
+    expect(pair[0].fingerprint).toBe(solo[0].fingerprint); // old baselines still match
+    expect(pair[1].fingerprint).not.toBe(pair[0].fingerprint);
+  });
+
+  it('disambiguates identical flagged lines in the same file (duplicated code)', async () => {
+    const reader = async () => 'exec(x)\nexec(x)';
+    const findings = [finding({ id: 'SEC-1', file: 'a.ts', line: 1 }), finding({ id: 'SEC-1', file: 'a.ts', line: 2 })];
+    await assignFingerprints(findings, reader);
+    expect(findings[0].fingerprint).not.toBe(findings[1].fingerprint);
+  });
+
+  it('assigns ordinals deterministically across runs', async () => {
+    const make = () => [
+      finding({ id: 'DEP-002', file: 'package.json' }),
+      finding({ id: 'DEP-002', file: 'package.json' }),
+      finding({ id: 'DEP-002', file: 'package.json' }),
+    ];
+    const a = make();
+    const b = make();
+    await assignFingerprints(a, async () => 'x');
+    await assignFingerprints(b, async () => 'x');
+    expect(a.map((f) => f.fingerprint)).toEqual(b.map((f) => f.fingerprint));
+    expect(new Set(a.map((f) => f.fingerprint)).size).toBe(3);
+  });
 });

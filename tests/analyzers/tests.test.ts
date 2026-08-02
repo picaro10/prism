@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { scanProject } from '../../src/core/scanner.js';
-import { TestsAnalyzer, findPythonDecorativeTests, detectNoSutImport } from '../../src/analyzers/tests.js';
+import {
+  TestsAnalyzer,
+  findPythonDecorativeTests,
+  detectNoSutImport,
+  countSkippedTests,
+} from '../../src/analyzers/tests.js';
 import type { ProjectScan } from '../../src/core/types.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -260,5 +265,24 @@ def test_decorative():
     print(result)
 `;
     expect(findPythonDecorativeTests(content, 'test_d.py')).toEqual(['test_decorative']);
+  });
+});
+
+describe('countSkippedTests string-literal immunity', () => {
+  it('counts real skipped tests', () => {
+    expect(countSkippedTests('it.skip("a", () => {});\ntest.todo("b");\nxit("c", noop);')).toBe(3);
+  });
+
+  it('does NOT count .skip that only appears inside string literals (fixture data)', () => {
+    const fixtureFile = [
+      'const example = \'it.skip("x", () => {})\';',
+      'const doc = "use test.skip to disable";',
+      'const tpl = `xdescribe("y")`;',
+    ].join('\n');
+    expect(countSkippedTests(fixtureFile)).toBe(0);
+  });
+
+  it('still counts a real skip on a line that also has a string', () => {
+    expect(countSkippedTests('it.skip("flaky on CI", () => {});')).toBe(1);
   });
 });

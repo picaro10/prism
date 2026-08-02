@@ -140,7 +140,7 @@ export class DependenciesAnalyzer implements Analyzer {
           if (stdout) auditJson = stdout.toString();
         }
 
-        let vulnCount: { critical?: number; high?: number } | undefined;
+        let vulnCount: { critical?: number; high?: number; moderate?: number; low?: number } | undefined;
         if (auditJson) {
           try {
             vulnCount = JSON.parse(auditJson)?.metadata?.vulnerabilities;
@@ -174,6 +174,23 @@ export class DependenciesAnalyzer implements Analyzer {
               meta: { vulnerabilities: vulnCount },
             });
             scoreDelta -= 1;
+          }
+
+          // Moderate/low advisories used to vanish from the report entirely —
+          // reported as info for completeness, with no score penalty (the
+          // audit-level gate philosophy stays: only critical/high score).
+          const moderate = vulnCount.moderate ?? 0;
+          const low = vulnCount.low ?? 0;
+          if (moderate + low > 0) {
+            findings.push({
+              id: 'DEP-AUDIT-LOWER',
+              category: 'dependencies',
+              severity: 'info',
+              title: `${moderate + low} moderate/low npm vulnerabilities`,
+              description: `npm audit found ${moderate} moderate and ${low} low severity vulnerabilities. Reported for visibility; they do not affect the score.`,
+              suggestion: 'Review with npm audit; fix where a patched version exists.',
+              meta: { vulnerabilities: vulnCount },
+            });
           }
         } else {
           // npm missing, no network for the advisory db, or unparseable output.

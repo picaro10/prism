@@ -3,6 +3,65 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [1.5.0] — 2026-08-03
+
+**The trust-boundary and honesty release** — every functional finding from the
+post-1.4.1 external audit, verified against the code and fixed.
+
+### Fixed
+- **Baseline fingerprints no longer conflate distinct line-less findings.**
+  Two findings with the same rule + file but no line (e.g. two wildcard
+  dependencies both raising `DEP-002` on `package.json`, or two hits on
+  identical duplicated lines) hashed to one identity, so the new-code gate
+  treated a NEW duplicate as preexisting debt. Colliding fingerprints now get
+  a deterministic ordinal hashed in; the first occurrence keeps the legacy
+  fingerprint, so existing baselines stay valid.
+- **`SEC-ENV-COMMITTED` now checks the git index.** The scanner filters its
+  inventory through `.gitignore`, but ignoring a file does not untrack it — a
+  `.env` committed first and gitignored later stayed in the repository while
+  becoming invisible to the rule that exists to catch exactly that. The
+  secrets analyzer now asks `git ls-files` directly (argv-only, no shell, no
+  hooks) and reports tracked env files as *actually committed*, with rotation
+  advice. Degrades silently when git is unavailable.
+- **`TST-012` no longer counts `.skip` inside string literals.** A file
+  holding `it.skip(...)` as fixture *data* (PRISM's own test suite among
+  them) was reported as containing skipped tests.
+- **Docs/code mismatch:** `DEP-AUDIT-SKIP` is documented as `low` (what the
+  code emits, with its −1 penalty), not `info`.
+
+### Changed
+- **Saved reports are validated for real.** `parseReport` now requires
+  `projectMeta` (present in every report since v1.0.0; the HTML and CLI
+  renderers dereference it unconditionally) and validates `aiTriage`,
+  `aiRemediation`, and `suppressed` deeply — a JSON that passes validation can
+  no longer crash a renderer afterwards.
+- **`triage` and `finding get` no longer trust the report's `projectPath`
+  blindly.** Reads were already confined to that root — but the report itself
+  chooses it. The recorded root is now honored only when it resolves inside
+  the current working directory; anything else requires an explicit
+  `--root <path>` (new flag on both commands). `triage` refuses loudly;
+  `finding get` degrades to a null snippet with a warning.
+- **The CLI imports `.env` selectively.** In `cd project && prism analyze .`
+  the cwd `.env` IS the analyzed project's — untrusted input. It is no longer
+  loaded wholesale into the auditor's process: only `ANTHROPIC_API_KEY`,
+  `OPENROUTER_API_KEY` and `PRISM_*` are imported, and the real environment
+  always wins. (The old comment claiming the cwd `.env` was "not the target's"
+  was simply false in the most common invocation.)
+- **Coverage gaps are reported, not swallowed.**
+  - Secrets: the summary's "N files scanned" now counts files actually READ,
+    and says out loud how many were skipped (>2MB) or unreadable.
+  - OSV: a non-empty lockfile that yields no packages (unreadable or
+    unparseable) and packages dropped past the 2000-package cap now raise
+    `DEP-OSV-INCOMPLETE` (low, −0.5) — unchecked is unknown, not clean.
+  - npm audit: moderate/low vulnerabilities appear as `DEP-AUDIT-LOWER`
+    (info, no penalty) instead of vanishing from the report.
+- **README honesty:** the static layer's network use is now stated precisely
+  (npm audit / OSV.dev / update check exchange package names & versions, never
+  code, and degrade to explicit UNKNOWN findings offline), and the score is
+  documented as a heuristic indicator, not a calibrated metric.
+- **CI supply chain:** GitHub Actions pinned to full commit SHAs, semgrep
+  install pinned to a version.
+
 ## [1.4.1] — 2026-08-02
 
 **Severity honesty in the OSV layer** — a credibility bug found auditing 1.4.0

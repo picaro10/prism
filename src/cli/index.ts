@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { existsSync } from 'node:fs';
-import { CLI_VERSION } from './shared.js';
+import { CLI_VERSION, loadAllowlistedEnv } from './shared.js';
 import { registerAnalyzeCommand } from './commands/analyze.js';
 import { registerTriageCommand } from './commands/triage.js';
 import {
@@ -13,14 +12,12 @@ import {
 } from './commands/reports.js';
 import { registerDoctorCommand, registerInitCommand, registerAgentCommand } from './commands/setup.js';
 
-// Load a .env from the current working directory if present (zero-dep, Node 20.12+).
-// This is the operator's .env (cwd), NOT the analyzed project's — we never load
-// the target repo's .env into PRISM's process.
-try {
-  if (existsSync('.env')) process.loadEnvFile('.env');
-} catch {
-  /* malformed .env — ignore and rely on the real environment */
-}
+// Pick up API keys from a .env in the current working directory. In the most
+// common invocation (`cd project && prism analyze .`) that file IS the
+// analyzed project's .env — untrusted input — so it is NOT loaded wholesale:
+// only the variables PRISM itself consumes are imported (AI provider keys and
+// PRISM_* settings), and the real environment always wins over the file.
+loadAllowlistedEnv('.env');
 
 const program = new Command();
 
