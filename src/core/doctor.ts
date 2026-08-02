@@ -44,6 +44,25 @@ export function checkApiKeys(env: NodeJS.ProcessEnv): DoctorCheck {
       };
 }
 
+/** Injectable seam so tests don't need semgrep on PATH. */
+type VersionRunner = (cmd: string, args: string[]) => Promise<{ stdout: string }>;
+
+const defaultVersionRunner: VersionRunner = async (cmd, args) => execFileAsync(cmd, args, { timeout: 5000 });
+
+/** Semgrep powers the security category's taint analysis; absence is a warning, not a failure. */
+export async function checkSemgrep(run: VersionRunner = defaultVersionRunner): Promise<DoctorCheck> {
+  try {
+    const { stdout } = await run('semgrep', ['--version']);
+    return { name: 'semgrep', status: 'ok', detail: `v${stdout.trim()} — taint analysis active in security` };
+  } catch {
+    return {
+      name: 'semgrep',
+      status: 'warn',
+      detail: 'not found — taint analysis (SQLi/XSS/SSRF/traversal) skipped; install with `pipx install semgrep`',
+    };
+  }
+}
+
 async function checkGit(): Promise<DoctorCheck> {
   try {
     const { stdout } = await execFileAsync('git', ['--version'], { timeout: 5000 });
@@ -68,5 +87,11 @@ export async function runDoctorChecks(
   nodeVersion: string,
   cwd: string,
 ): Promise<DoctorCheck[]> {
-  return [checkNodeVersion(nodeVersion), await checkGit(), checkApiKeys(env), await checkWritable(cwd)];
+  return [
+    checkNodeVersion(nodeVersion),
+    await checkGit(),
+    await checkSemgrep(),
+    checkApiKeys(env),
+    await checkWritable(cwd),
+  ];
 }

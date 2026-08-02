@@ -6,7 +6,7 @@ primary design constraint, and a rule you can't trust is worse than no rule.
 
 | Category | Weight | Rules |
 |---|---|---|
-| [Security](security.md) | 2.0× | `SEC-*` — secrets, keys, committed .env, entropy |
+| [Security](security.md) | 2.0× | `SEC-*` — secrets, keys, committed .env, entropy · `SG-*` — taint dataflow (SQLi, XSS, SSRF, traversal, deserialization) via optional semgrep |
 | [Agentic](agentic.md) | 1.5× | `AGT-*` — AI-agent-specific risks (PRISM's own territory) |
 | [Dependencies](dependencies.md) | 1.5× | `DEP-*` — lock files, wildcards, npm audit, Python pinning |
 | [Tests](tests.md) | 1.5× | `TST-*` — existence, ratio, decorative tests |

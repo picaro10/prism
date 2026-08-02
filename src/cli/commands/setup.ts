@@ -8,7 +8,7 @@ import { EXIT, DEFAULT_MIN_SCORE, usageError } from '../shared.js';
 export function registerDoctorCommand(program: Command): void {
   program
     .command('doctor')
-    .description('Check the environment: Node version, git, AI keys, writable cwd')
+    .description('Check the environment: Node version, git, semgrep, AI keys, writable cwd')
     .action(async () => {
       const { runDoctorChecks } = await import('../../core/doctor.js');
       const checks = await runDoctorChecks(process.env, process.version, process.cwd());

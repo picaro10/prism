@@ -3,6 +3,26 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [Unreleased]
+
+### Added
+- **Semgrep taint analysis in the security category.** When semgrep is on PATH,
+  PRISM runs a curated, embedded rule pack (13 rules — no registry fetch, no
+  metrics) of real dataflow checks: SQLi, XSS (reflected + DOM), SSRF, path
+  traversal, deserialization (pickle/marshal/yaml), and command/code injection,
+  for JS/TS and Python. Findings land as `SG-*` under `security` with CWE/OWASP
+  metadata and go through the same context filter (fixtures skipped, test files
+  downgraded) and — with `--ai` — the same adversarial triage as every other
+  finding. Without semgrep the category degrades to an info notice
+  (`SEC-SEMGREP-MISSING`), never a penalty; an installed-but-failing semgrep
+  reports `SEC-SEMGREP-ERROR` (unknown ≠ clean). Output is capped at 200
+  findings (`SEC-SEMGREP-TRUNCATED`).
+- **`prism doctor` reports semgrep** (ok + version, or a warn with the install
+  hint).
+- The engine now merges same-category analyzer results into one
+  `CategoryScore` (min score, concatenated findings) — `security` is the first
+  category with two engines (secrets + semgrep).
+
 ## [1.3.0] — 2026-08-02
 
 **CLI decomposition & hardening** — the post-audit refactor: modular CLI, deep report validation, a11y, coverage floor raised.

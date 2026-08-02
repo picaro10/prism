@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { runAudit, CATEGORY_WEIGHTS } from '../../src/core/engine.js';
+import { runAudit, CATEGORY_WEIGHTS, mergeResultsByCategory } from '../../src/core/engine.js';
+import type { AnalyzerResult } from '../../src/core/types.js';
 import type { PrismConfig } from '../../src/core/types.js';
 import type { LLMClient, Verdict } from '../../src/ai/types.js';
 import { findingKey } from '../../src/ai/types.js';
@@ -102,6 +103,60 @@ describe('runAudit', () => {
       totalWeight += w;
     }
     expect(report.overallScore).toBe(Math.round((weightedSum / totalWeight) * 10) / 10);
+  });
+});
+
+describe('mergeResultsByCategory', () => {
+  const mk = (category: AnalyzerResult['category'], score: number, ids: string[], applicable?: false): AnalyzerResult => ({
+    category,
+    score,
+    findings: ids.map((id) => ({
+      id,
+      category,
+      severity: 'high' as const,
+      title: id,
+      description: id,
+    })),
+    summary: `${category}:${score}`,
+    ...(applicable === false ? { applicable: false as const } : {}),
+  });
+
+  it('leaves single-analyzer categories untouched', () => {
+    const results = [mk('structure', 8, ['STR-001']), mk('security', 9, ['SEC-001'])];
+    expect(mergeResultsByCategory(results)).toEqual(results);
+  });
+
+  it('merges same-category results: min score, concatenated findings, joined summary', () => {
+    const merged = mergeResultsByCategory([
+      mk('security', 9, ['SEC-001']),
+      mk('security', 6, ['SG-SQLI-X']),
+      mk('structure', 8, ['STR-001']),
+    ]);
+
+    expect(merged).toHaveLength(2);
+    const security = merged.find((r) => r.category === 'security')!;
+    expect(security.score).toBe(6);
+    expect(security.findings.map((f) => f.id)).toEqual(['SEC-001', 'SG-SQLI-X']);
+    expect(security.summary).toBe('security:9 · security:6');
+  });
+
+  it('a merged category is applicable when any member is applicable', () => {
+    const merged = mergeResultsByCategory([mk('security', 10, [], false), mk('security', 7, ['SG-A'])]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].applicable).not.toBe(false);
+  });
+
+  it('a merged category stays N/A only when every member is N/A', () => {
+    const merged = mergeResultsByCategory([mk('security', 10, [], false), mk('security', 10, [], false)]);
+    expect(merged[0].applicable).toBe(false);
+  });
+});
+
+describe('runAudit — category uniqueness', () => {
+  it('never emits two CategoryScores for the same category', async () => {
+    const report = await runAudit({ targetPath: FIXTURE_PATH });
+    const cats = report.categories.map((c) => c.category);
+    expect(new Set(cats).size).toBe(cats.length);
   });
 });
 

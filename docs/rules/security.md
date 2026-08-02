@@ -33,6 +33,39 @@ stepped down one severity.
 | `SEC-PASSWORD` | high | Hardcoded password assignment. |
 | `SEC-ENV-VALUE` | medium | A value that looks like it belongs in `.env`, hardcoded in source. |
 
+## Taint rules (`SG-*`, via semgrep)
+
+Real dataflow analysis — user input traced to a dangerous sink — powered by [semgrep](https://semgrep.dev)
+running PRISM's curated rule pack (shipped with PRISM, no registry fetch, no metrics). **Optional:**
+when semgrep is not on PATH the category degrades to an info notice (`SEC-SEMGREP-MISSING`) with no
+penalty — taint depth is an upgrade, never a requirement. Install with `pipx install semgrep`.
+
+Each rule carries CWE/OWASP metadata, and the AI triage layer (`--ai`) adversarially re-checks these
+findings like any others — that pass is what kills the false positives taint analysis is famous for.
+
+| ID | Severity | Lang | CWE | What it detects |
+|---|---|---|---|---|
+| `SG-SQLI-TAINTED-QUERY` | critical | JS/TS | CWE-89 | Request data string-built into `db.query`/`execute`/`raw`. |
+| `SG-XSS-TAINTED-RESPONSE` | high | JS/TS | CWE-79 | Request data written into `res.send`/`res.write` unsanitized. |
+| `SG-DOM-XSS-INNERHTML` | high | JS/TS | CWE-79 | URL-controlled data assigned to `innerHTML`/`outerHTML`/`document.write`. |
+| `SG-SSRF-TAINTED-URL` | high | JS/TS | CWE-918 | Request data used as `fetch`/`axios`/`http.get` URL. |
+| `SG-PATH-TRAVERSAL-FS` | critical | JS/TS | CWE-22 | Request data in a filesystem path (`readFile`, `createReadStream`, …). |
+| `SG-COMMAND-INJECTION-EXEC` | critical | JS/TS | CWE-78 | Request data in `exec`/`execSync` shell commands. |
+| `SG-CODE-INJECTION-EVAL` | critical | JS/TS | CWE-95 | Request data reaching `eval`/`new Function`/`vm.runInNewContext`. |
+| `SG-SQLI-TAINTED-EXECUTE-PY` | critical | Python | CWE-89 | Flask/Django request data formatted into `cursor.execute`. |
+| `SG-COMMAND-INJECTION-PY` | critical | Python | CWE-78 | Request data in `os.system`/`subprocess … shell=True`. |
+| `SG-SSRF-TAINTED-URL-PY` | high | Python | CWE-918 | Request data used as `requests`/`urlopen` URL. |
+| `SG-PATH-TRAVERSAL-OPEN-PY` | critical | Python | CWE-22 | Request data flowing into `open()` (sanitized by `secure_filename`/`basename`). |
+| `SG-PICKLE-LOAD-UNTRUSTED-PY` | critical | Python | CWE-502 | Request data reaching `pickle`/`marshal` deserialization. |
+| `SG-YAML-UNSAFE-LOAD-PY` | high | Python | CWE-502 | `yaml.load` without `SafeLoader`. |
+
+Notices (no dataflow finding, they report the engine's own state): `SEC-SEMGREP-MISSING` (info, not
+installed), `SEC-SEMGREP-ERROR` (low, installed but the scan failed — unknown ≠ clean),
+`SEC-SEMGREP-TRUNCATED` (info, >200 findings capped).
+
+Context rules apply as everywhere else: fixture/template/vendor/generated findings are skipped,
+test-file findings step down one severity.
+
 ## False-positive notes (field-tested)
 
 These distinctions came from real audits, not theory:

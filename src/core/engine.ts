@@ -42,6 +42,7 @@ import { TestsAnalyzer } from '../analyzers/tests.js';
 import { ConsistencyAnalyzer } from '../analyzers/consistency.js';
 import { AgenticAnalyzer } from '../analyzers/agentic.js';
 import { WorkflowAnalyzer } from '../analyzers/workflow.js';
+import { SemgrepAnalyzer } from '../analyzers/semgrep.js';
 
 const PRISM_VERSION = '1.3.0';
 
@@ -81,7 +82,42 @@ function createAnalyzers(): Analyzer[] {
     new ConsistencyAnalyzer(),
     new AgenticAnalyzer(),
     new WorkflowAnalyzer(),
+    new SemgrepAnalyzer(),
   ];
+}
+
+/**
+ * Merge analyzer results that share a category into one result per category
+ * (e.g. secrets + semgrep both emit `security`). Without this, downstream
+ * consumers would see duplicate CategoryScores and the weighted average would
+ * count the category's weight twice. Merge policy: findings concatenate,
+ * the score is the worst (min) of the members — a category is only as healthy
+ * as its weakest signal — summaries join, and the category stays N/A only
+ * when every member had nothing to analyze.
+ */
+export function mergeResultsByCategory(results: AnalyzerResult[]): AnalyzerResult[] {
+  const byCategory = new Map<string, AnalyzerResult[]>();
+  for (const r of results) {
+    const group = byCategory.get(r.category);
+    if (group) group.push(r);
+    else byCategory.set(r.category, [r]);
+  }
+
+  const merged: AnalyzerResult[] = [];
+  for (const group of byCategory.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]);
+      continue;
+    }
+    merged.push({
+      category: group[0].category,
+      score: Math.min(...group.map((r) => r.score)),
+      findings: group.flatMap((r) => r.findings),
+      summary: group.map((r) => r.summary).join(' · '),
+      ...(group.every((r) => r.applicable === false) ? { applicable: false as const } : {}),
+    });
+  }
+  return merged;
 }
 
 /**
@@ -141,6 +177,10 @@ export async function runAudit(
       });
     }
   }
+
+  // Phase 3.4: Collapse same-category results (secrets + semgrep are both
+  // `security`) so every downstream step sees exactly one result per category.
+  results = mergeResultsByCategory(results);
 
   // Phase 3.5: Justified suppressions — silence accepted findings BEFORE
   // scoring, fingerprints, gates, and AI triage (no tokens spent judging a

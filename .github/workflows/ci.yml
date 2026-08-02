@@ -35,6 +35,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Semgrep is an optional PRISM dependency (taint analysis in the security
+      # category). One leg runs WITH it so the real-binary e2e test and the
+      # dogfood self-audit exercise the full path; the other legs exercise the
+      # degradation path (not installed → info notice).
+      - name: Install semgrep (ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: pipx install semgrep
+
       - name: Lint
         run: npm run lint
 

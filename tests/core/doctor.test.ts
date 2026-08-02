@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseNodeMajor, checkNodeVersion, checkApiKeys, runDoctorChecks } from '../../src/core/doctor.js';
+import { parseNodeMajor, checkNodeVersion, checkApiKeys, checkSemgrep, runDoctorChecks } from '../../src/core/doctor.js';
 
 describe('parseNodeMajor', () => {
   it('extracts the major version', () => {
@@ -31,6 +31,23 @@ describe('checkApiKeys', () => {
   });
 });
 
+describe('checkSemgrep', () => {
+  it('reports ok with the version when semgrep is on PATH', async () => {
+    const check = await checkSemgrep(async () => ({ stdout: '1.172.0\n' }));
+    expect(check.name).toBe('semgrep');
+    expect(check.status).toBe('ok');
+    expect(check.detail).toContain('1.172.0');
+  });
+
+  it('warns (not fails) when semgrep is missing — taint analysis is optional', async () => {
+    const check = await checkSemgrep(async () => {
+      throw new Error('ENOENT');
+    });
+    expect(check.status).toBe('warn');
+    expect(check.detail.toLowerCase()).toContain('taint');
+  });
+});
+
 describe('runDoctorChecks', () => {
   it('returns a check per environment concern', async () => {
     const checks = await runDoctorChecks({ OPENROUTER_API_KEY: 'x' }, 'v22.0.0', process.cwd());
@@ -39,6 +56,7 @@ describe('runDoctorChecks', () => {
     expect(names).toContain('git');
     expect(names).toContain('AI provider key');
     expect(names).toContain('writable cwd');
+    expect(names).toContain('semgrep');
     expect(checks.every((c) => ['ok', 'warn', 'fail'].includes(c.status))).toBe(true);
   });
 });
