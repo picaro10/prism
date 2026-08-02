@@ -355,7 +355,43 @@ export const CASES: BenchCase[] = [
       'requirements.txt': 'requests==2.19.0\n',
     },
     expect: { 'requirements.txt': ['DEP-OSV-HIGH'] },
-    allowExtra: ['DEP-OSV-CRITICAL', 'DEP-OSV-LOWER'],
+    allowExtra: ['DEP-OSV-CRITICAL', 'DEP-OSV-LOWER', 'DEP-OSV-UNKNOWN'],
+  },
+  {
+    name: 'tp-osv-criticals-are-not-buried-as-low',
+    categories: ['dependencies'],
+    requires: 'osv',
+    // Regression (found auditing 1.4.0, shipped in it): a per-run detail budget
+    // of 30 left the rest of the advisories `unknown`, and `unknown` was folded
+    // into the LOW bucket — django 1.11 + friends reported 4 criticals where
+    // there are 29. A security tool that understates criticals is worse than
+    // one that doesn't look. Recall pinned on CRITICAL specifically.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'requirements.txt': 'django==1.11.0\nflask==0.12.2\npyyaml==3.12\n',
+    },
+    expect: { 'requirements.txt': ['DEP-OSV-CRITICAL'] },
+    allowExtra: ['DEP-OSV-HIGH', 'DEP-OSV-LOWER', 'DEP-OSV-UNKNOWN'],
+  },
+  {
+    name: 'tp-sqli-taint-request-naming',
+    categories: ['security'],
+    requires: 'semgrep',
+    // Regression (found auditing 1.4.0): the SAME SQLi went undetected purely
+    // because the handler names its parameter `request` (Fastify, Next.js app
+    // router) instead of `req`. A rule whose recall depends on a variable name
+    // is a rule you can't trust.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/fastify-route.js': [
+        "const db = require('./db');",
+        "app.get('/user', (request, reply) => {",
+        '  db.query(`SELECT * FROM users WHERE id = ${request.query.id}`);',
+        '});',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'src/fastify-route.js': ['SG-SQLI-TAINTED-QUERY'] },
   },
   {
     name: 'trap-osv-lockfile-in-fixtures',

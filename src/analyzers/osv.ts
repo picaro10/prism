@@ -27,8 +27,15 @@ export type OsvFetch = (
 const OSV_API = 'https://api.osv.dev';
 const QUERY_CHUNK = 500; // OSV querybatch hard limit is 1000
 const MAX_PACKAGES = 2000;
-const MAX_VULN_DETAILS = 30; // detail lookups per run — advisories beyond this stay unclassified
-const DETAIL_CONCURRENCY = 4;
+/**
+ * Detail lookups per run. This is a budget on TRUTH, not on noise: whatever
+ * falls outside is reported as explicitly unclassified (DEP-OSV-UNKNOWN,
+ * medium) — never quietly folded into the low bucket. Sized so a realistic
+ * dependency tree gets fully classified (measured: 236 advisories across 10
+ * stale Python packages).
+ */
+const MAX_VULN_DETAILS = 300;
+const DETAIL_CONCURRENCY = 8;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const defaultFetch: OsvFetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -83,22 +90,29 @@ export class OsvAnalyzer implements Analyzer {
       );
     }
 
+    const vulnCount = new Set(vulnerable.flatMap((v) => v.vulnIds)).size;
+    const truncatedCount = Math.max(0, vulnCount - MAX_VULN_DETAILS);
     const severityByVuln = await this.classifyVulns(vulnerable);
-    const findings = this.buildFindings(vulnerable, severityByVuln);
+    const findings = this.buildFindings(vulnerable, severityByVuln, truncatedCount);
 
     let score = 10;
     for (const f of findings) {
       if (f.id === 'DEP-OSV-CRITICAL') score -= 2;
       else if (f.id === 'DEP-OSV-HIGH') score -= 1;
+      // Unclassified advisories carry a real penalty — the same weight the
+      // dependencies analyzer gives an audit that could not run at all.
+      else if (f.id === 'DEP-OSV-UNKNOWN') score -= 1;
       else score -= 0.2;
     }
     score = Math.max(0, Math.round(score * 10) / 10);
 
-    const vulnCount = new Set(vulnerable.flatMap((v) => v.vulnIds)).size;
+    const unclassified = findings.find((f) => f.id === 'DEP-OSV-UNKNOWN')?.meta?.count;
     return this.result(
       score,
       findings,
-      `OSV: ${vulnCount} known advisories across ${vulnerable.length} of ${packages.length} package(s)`,
+      `OSV: ${vulnCount} known advisories across ${vulnerable.length} of ${packages.length} package(s)${
+        unclassified ? ` · ${unclassified} unclassified (severity unknown)` : ''
+      }`,
     );
   }
 
@@ -160,20 +174,40 @@ export class OsvAnalyzer implements Analyzer {
     return packages.filter((p) => p.vulnIds.length > 0);
   }
 
-  /** GET /v1/vulns/{id} for the first MAX_VULN_DETAILS unique advisories. */
+  /**
+   * GET /v1/vulns/{id} for up to MAX_VULN_DETAILS unique advisories, following
+   * the `aliases` chain when the primary entry carries no severity: roughly
+   * half of PyPI advisories are `PYSEC-*` records that mirror a `GHSA-*` one,
+   * and only the GHSA side has `database_specific.severity`. Anything still
+   * unresolved stays `unknown` — which is a REPORTED state, not a low one.
+   */
   private async classifyVulns(vulnerable: VulnerablePackage[]): Promise<Map<string, OsvSeverity>> {
     const uniqueIds = [...new Set(vulnerable.flatMap((v) => v.vulnIds))];
     const toFetch = uniqueIds.slice(0, MAX_VULN_DETAILS);
     const severityByVuln = new Map<string, OsvSeverity>(uniqueIds.map((id) => [id, 'unknown' as const]));
 
+    const severityOf = async (id: string): Promise<{ severity?: string; aliases: string[] }> => {
+      const res = await this.fetchImpl(`${OSV_API}/v1/vulns/${encodeURIComponent(id)}`);
+      if (!res.ok) return { aliases: [] };
+      const data = (await res.json()) as { database_specific?: { severity?: unknown }; aliases?: unknown };
+      const raw = data.database_specific?.severity;
+      return {
+        ...(typeof raw === 'string' ? { severity: raw } : {}),
+        aliases: Array.isArray(data.aliases) ? data.aliases.filter((a): a is string => typeof a === 'string') : [],
+      };
+    };
+
     await mapWithConcurrency(toFetch, DETAIL_CONCURRENCY, async (id) => {
       try {
-        const res = await this.fetchImpl(`${OSV_API}/v1/vulns/${encodeURIComponent(id)}`);
-        if (!res.ok) return;
-        const data = (await res.json()) as { database_specific?: { severity?: unknown } };
-        const raw = data.database_specific?.severity;
-        if (typeof raw !== 'string') return;
-        const s = raw.toUpperCase();
+        let { severity, aliases } = await severityOf(id);
+        if (severity === undefined) {
+          // One hop only, and only to a GHSA record (the one ecosystem that
+          // reliably publishes a severity) — keeps the request budget bounded.
+          const ghsa = aliases.find((a) => a.startsWith('GHSA-'));
+          if (ghsa) severity = (await severityOf(ghsa)).severity;
+        }
+        if (severity === undefined) return;
+        const s = severity.toUpperCase();
         if (s === 'CRITICAL') severityByVuln.set(id, 'critical');
         else if (s === 'HIGH') severityByVuln.set(id, 'high');
         else severityByVuln.set(id, 'lower');
@@ -184,7 +218,11 @@ export class OsvAnalyzer implements Analyzer {
     return severityByVuln;
   }
 
-  private buildFindings(vulnerable: VulnerablePackage[], severityByVuln: Map<string, OsvSeverity>): Finding[] {
+  private buildFindings(
+    vulnerable: VulnerablePackage[],
+    severityByVuln: Map<string, OsvSeverity>,
+    truncatedCount: number,
+  ): Finding[] {
     const buckets: Record<OsvSeverity, { pkg: VulnerablePackage; ids: string[] }[]> = {
       critical: [],
       high: [],
@@ -234,18 +272,40 @@ export class OsvAnalyzer implements Analyzer {
     if (buckets.critical.length > 0)
       findings.push(advisoryFinding('DEP-OSV-CRITICAL', 'critical', buckets.critical, 'critical'));
     if (buckets.high.length > 0) findings.push(advisoryFinding('DEP-OSV-HIGH', 'high', buckets.high, 'high'));
-    const lower = [...buckets.lower, ...buckets.unknown];
-    if (lower.length > 0) {
-      const count = lower.reduce((n, e) => n + e.ids.length, 0);
+
+    if (buckets.lower.length > 0) {
+      const count = buckets.lower.reduce((n, e) => n + e.ids.length, 0);
       findings.push({
         id: 'DEP-OSV-LOWER',
         category: 'dependencies',
         severity: 'low',
-        title: `${count} lower-severity or unclassified advisories (OSV.dev)`,
-        description: `${count} advisories below high severity (or not classified within the per-run detail budget) affect: ${describe(lower)}.`,
-        file: lower[0].pkg.file,
+        title: `${count} lower-severity advisories (OSV.dev)`,
+        description: `${count} advisories classified below high severity affect: ${describe(buckets.lower)}.`,
+        file: buckets.lower[0].pkg.file,
         suggestion: 'Review the advisories on https://osv.dev and update where a patched version exists.',
         meta: { engine: 'osv', count },
+      });
+    }
+
+    // Advisories whose severity could NOT be established get their own finding
+    // at medium — never folded into the low bucket. An unclassified advisory
+    // may well be a critical; presenting it as "lower-severity" is the exact
+    // failure mode ("unknown ≠ clean") this project exists to call out.
+    if (buckets.unknown.length > 0) {
+      const count = buckets.unknown.reduce((n, e) => n + e.ids.length, 0);
+      const overBudget = truncatedCount > 0;
+      findings.push({
+        id: 'DEP-OSV-UNKNOWN',
+        category: 'dependencies',
+        severity: 'medium',
+        title: `${count} advisories of UNKNOWN severity (OSV.dev)`,
+        description: `${count} known advisories could not be classified — OSV.dev publishes no severity for them${
+          overBudget ? `, and ${truncatedCount} exceeded this run's classification budget of ${MAX_VULN_DETAILS}` : ''
+        }. Unknown severity is NOT low severity: any of these may be critical. Affected: ${describe(buckets.unknown)}.`,
+        file: buckets.unknown[0].pkg.file,
+        suggestion:
+          'Review these advisories individually on https://osv.dev — do not treat them as low risk until classified.',
+        meta: { engine: 'osv', count, overBudget, budget: MAX_VULN_DETAILS },
       });
     }
     return findings;

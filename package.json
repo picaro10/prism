@@ -1,6 +1,6 @@
 {
   "name": "@latenciatech/prism",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "The security auditor for AI-written code and the pipelines that ship it — taint analysis, agentic/CI risks, multi-ecosystem SCA, adversarial AI triage",
   "type": "module",
   "bin": {

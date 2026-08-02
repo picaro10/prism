@@ -13,7 +13,7 @@ import type { AuditReport } from '../core/types.js';
 export const EXIT = { OK: 0, FINDINGS: 1, USAGE: 2, INTERNAL: 3 } as const;
 
 export const DEFAULT_MIN_SCORE = 6;
-export const CLI_VERSION = '1.4.0';
+export const CLI_VERSION = '1.4.1';
 
 /** Print a usage error (subsequent lines are detail) and exit 2. */
 export function usageError(...messages: string[]): never {

@@ -24,8 +24,14 @@ Runs only when such a lockfile exists; lockfiles in fixture/vendor/template path
 |---|---|---|
 | `DEP-OSV-CRITICAL` | critical | OSV.dev reports critical advisories for locked packages. |
 | `DEP-OSV-HIGH` | high | OSV.dev reports high advisories for locked packages. |
-| `DEP-OSV-LOWER` | low | Lower-severity or unclassified advisories (grouped into one note). |
+| `DEP-OSV-LOWER` | low | Advisories **classified** below high severity (grouped into one note). |
+| `DEP-OSV-UNKNOWN` | medium | Advisories whose severity OSV.dev does not publish, or that exceeded the per-run classification budget. **Unknown severity is not low severity** — any of these may be a critical. |
 | `DEP-OSV-SKIP` | low | Lockfiles exist but OSV.dev was unreachable — advisory status is unknown, not clean. |
+
+Severity resolution follows the `aliases` chain: about half of PyPI advisories are `PYSEC-*` records
+with no severity that mirror a `GHSA-*` one that has it. Skipping that hop understates severity
+badly — on a tree of ten stale Python packages it was the difference between reporting 4 criticals
+and the 29 that are really there.
 
 Like `DEP-AUDIT-*`, this is a **dynamic external signal** — see the note below. It informs; never
 build a count-based CI gate on it.

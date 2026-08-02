@@ -3,7 +3,30 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
-## [Unreleased]
+## [1.4.1] — 2026-08-02
+
+**Severity honesty in the OSV layer** — a credibility bug found auditing 1.4.0
+hours after publishing it, and the exact failure mode this project exists to
+call out.
+
+### Fixed
+- **`DEP-OSV-LOWER` no longer buries criticals.** The per-run classification
+  budget (30 advisories) was a cap on *truth*, not on noise: everything beyond
+  it stayed `unknown`, and `unknown` was folded into the **low** bucket. On ten
+  stale Python packages PRISM reported **4 criticals and 9 highs** while 223
+  advisories sat in a `low` note — the real figures are **29 and 119**.
+  Unclassified advisories now get their own `DEP-OSV-UNKNOWN` finding at
+  **medium** with a real penalty, stating plainly that unknown severity is not
+  low severity, and disclosing when the budget was exceeded. Same doctrine as
+  `DEP-AUDIT-SKIP`: unknown ≠ clean.
+- **Severity now follows the OSV `aliases` chain.** Roughly half of PyPI
+  advisories are `PYSEC-*` records with no severity that mirror a `GHSA-*` one
+  that has it; one hop recovers them. Budget raised 30 → 300 (concurrency 4 →
+  8) so a realistic dependency tree is fully classified.
+- **Taint rules no longer depend on a variable name.** A handler naming its
+  parameter `request` (Fastify, Next.js app router) instead of `req` hid
+  identical SQLi/SSRF/traversal/injection findings. All JS/TS rules now list
+  both conventions as sources.
 
 ### Changed
 - **Benchmark covers the v1.4.0 pillars** — 15 → 21 cases: planted SQLi taint
@@ -17,7 +40,9 @@ All notable changes to PRISM are documented here. The format is based on
   an absent binary or an unreachable external API can never read as a
   regression, nor hide behind a silent pass. Live-database findings may declare
   `allowExtra` so OSV reclassifying an advisory can't break CI, while recall
-  stays pinned.
+  stays pinned. Both bugs above are pinned as regression cases (23 total):
+  criticals must surface as `DEP-OSV-CRITICAL`, and the `request`-named handler
+  must still trip the SQLi rule.
 
 ## [1.4.0] — 2026-08-02
 

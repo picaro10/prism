@@ -14,6 +14,10 @@
 
 export const SEMGREP_RULES_YAML = `rules:
   # ---------- JavaScript / TypeScript ----------
+  # NAMING: sources list BOTH conventional request-object names — Express and
+  # Koa call it "req", Fastify and the Next.js app-router handlers call it
+  # "request". Rules that only knew the first missed identical vulnerabilities
+  # purely by variable name (found auditing the 1.4.0 rule pack).
   - id: prism-sqli-tainted-query
     languages: [javascript, typescript]
     severity: ERROR
@@ -27,10 +31,15 @@ export const SEMGREP_RULES_YAML = `rules:
       owasp: "A03:2021 - Injection"
       fix: Use parameterized queries ($1/? placeholders) and pass values separately.
     pattern-sources:
+      # Both conventional names for the request object (see NAMING note above).
       - pattern: req.query
       - pattern: req.body
       - pattern: req.params
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
       - pattern: req.headers
+      - pattern: request.headers
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -52,9 +61,13 @@ export const SEMGREP_RULES_YAML = `rules:
       owasp: "A03:2021 - Injection"
       fix: Escape output (or render through a template engine with auto-escaping); never concatenate request data into HTML.
     pattern-sources:
+      # Both conventional names for the request object (see NAMING note above).
       - pattern: req.query
       - pattern: req.body
       - pattern: req.params
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
     pattern-sanitizers:
       - pattern: escapeHtml(...)
       - pattern: encodeURIComponent(...)
@@ -114,9 +127,13 @@ export const SEMGREP_RULES_YAML = `rules:
       owasp: "A10:2021 - Server-Side Request Forgery"
       fix: Validate against an allowlist of hosts/schemes before fetching; never fetch a raw user-supplied URL.
     pattern-sources:
+      # Both conventional names for the request object (see NAMING note above).
       - pattern: req.query
       - pattern: req.body
       - pattern: req.params
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -141,9 +158,13 @@ export const SEMGREP_RULES_YAML = `rules:
       owasp: "A01:2021 - Broken Access Control"
       fix: Resolve the path and verify it stays under the intended root (or use path.basename on the user segment).
     pattern-sources:
+      # Both conventional names for the request object (see NAMING note above).
       - pattern: req.query
       - pattern: req.body
       - pattern: req.params
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
     pattern-sanitizers:
       - pattern: path.basename(...)
     pattern-sinks:
@@ -170,9 +191,13 @@ export const SEMGREP_RULES_YAML = `rules:
       owasp: "A03:2021 - Injection"
       fix: Use execFile/spawn with an argv array (no shell) and validate the arguments; never interpolate input into a command string.
     pattern-sources:
+      # Both conventional names for the request object (see NAMING note above).
       - pattern: req.query
       - pattern: req.body
       - pattern: req.params
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -194,9 +219,13 @@ export const SEMGREP_RULES_YAML = `rules:
       owasp: "A03:2021 - Injection"
       fix: Never evaluate user input as code. Parse it as data (JSON.parse) or dispatch through an explicit allowlist.
     pattern-sources:
+      # Both conventional names for the request object (see NAMING note above).
       - pattern: req.query
       - pattern: req.body
       - pattern: req.params
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
     pattern-sinks:
       - patterns:
           - pattern-either:
