@@ -3,6 +3,22 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [Unreleased]
+
+### Changed
+- **Benchmark covers the v1.4.0 pillars** — 15 → 21 cases: planted SQLi taint
+  (Express) and Python pickle deserialization, plus the two FP traps taint
+  analysis is famous for failing (a parameterized query whose *params* carry
+  request data, and `path.basename()` sanitizing a traversal); an OSV.dev case
+  on a known-vulnerable pin, and its trap (a vulnerable lockfile living in
+  `tests/fixtures/` must never reach the network, let alone produce findings).
+  Cases can now declare `requires: 'semgrep' | 'osv'`; the runner probes and
+  **skips them with an explicit SKIPPED line** when the capability is missing —
+  an absent binary or an unreachable external API can never read as a
+  regression, nor hide behind a silent pass. Live-database findings may declare
+  `allowExtra` so OSV reclassifying an advisory can't break CI, while recall
+  stays pinned.
+
 ## [1.4.0] — 2026-08-02
 
 **The security release** — three pillars that reposition PRISM as the security

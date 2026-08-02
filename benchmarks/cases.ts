@@ -19,6 +19,21 @@ export interface BenchCase {
   files: Record<string, string>;
   /** Relative path → EXACT set of rule ids expected in that file ([] = any finding is an FP). */
   expect: Record<string, string[]>;
+  /**
+   * External capability this case needs. The runner probes and SKIPS (with an
+   * explicit log line, never silently) when it is missing: 'semgrep' = the
+   * binary on PATH; 'osv' = api.osv.dev reachable. External availability must
+   * never fail the benchmark — the Day-6 lesson, applied to our own gate.
+   */
+  requires?: 'semgrep' | 'osv';
+  /**
+   * Rule ids tolerated (not counted as FPs) beyond the expected set. For
+   * findings backed by a LIVE external database: OSV severity buckets shift
+   * as advisories are added/reclassified, and an exact set would let osv.dev
+   * break our CI — the expectation pins recall (the id must appear), not the
+   * database's mood.
+   */
+  allowExtra?: string[];
 }
 
 /** Assemble a risky literal at runtime so it never exists contiguously in the repo. */
@@ -251,5 +266,107 @@ export const CASES: BenchCase[] = [
       ].join('\n'),
     },
     expect: { 'tests/api.test.ts': [] },
+  },
+
+  // ── Taint (semgrep) — v1.4.0 pillar 1 ───────────────────────────────────
+  {
+    name: 'tp-sqli-taint-express',
+    categories: ['security'],
+    requires: 'semgrep',
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/server.js': [
+        "const express = require('express');",
+        "const db = require('./db');",
+        'const app = express();',
+        "app.get('/user', (req, res) => {",
+        '  const id = req.query.id;',
+        '  db.query(`SELECT * FROM users WHERE id = ${id}`);',
+        '});',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'src/server.js': ['SG-SQLI-TAINTED-QUERY'] },
+  },
+  {
+    name: 'tp-pickle-untrusted-py',
+    categories: ['security'],
+    requires: 'semgrep',
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/app.py': ['from flask import request', 'import pickle', '', 'def load():', '    return pickle.loads(request.data)', ''].join('\n'),
+    },
+    expect: { 'src/app.py': ['SG-PICKLE-LOAD-UNTRUSTED-PY'] },
+  },
+  {
+    name: 'trap-parameterized-query-is-safe',
+    categories: ['security'],
+    requires: 'semgrep',
+    // THE classic taint FP: request data flows into the PARAMS array of a
+    // parameterized query — the query string itself is a constant. The sink
+    // focuses on the query argument, so this must stay silent.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/safe-query.js': [
+        "const express = require('express');",
+        "const db = require('./db');",
+        'const app = express();',
+        "app.get('/user', (req, res) => {",
+        "  db.query('SELECT * FROM users WHERE id = $1', [req.query.id]);",
+        '});',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'src/safe-query.js': [] },
+  },
+  {
+    name: 'trap-basename-sanitizes-traversal',
+    categories: ['security'],
+    requires: 'semgrep',
+    // path.basename() strips any ../ segments — a sanitized user segment in a
+    // filesystem path is the documented safe pattern, not a traversal.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/safe-file.js': [
+        "const express = require('express');",
+        "const path = require('node:path');",
+        "const fs = require('node:fs');",
+        'const app = express();',
+        "app.get('/file', (req, res) => {",
+        "  const data = fs.readFileSync('./uploads/' + path.basename(req.query.name));",
+        '  res.json({ data });',
+        '});',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'src/safe-file.js': [] },
+  },
+
+  // ── OSV.dev SCA — v1.4.0 pillar 2 ───────────────────────────────────────
+  {
+    name: 'tp-osv-known-vulnerable-pin',
+    categories: ['dependencies'],
+    requires: 'osv',
+    // requests 2.19.0 (2018) carries well-known HIGH advisories that will
+    // never be unpublished. Recall pinned on DEP-OSV-HIGH; the other buckets
+    // are tolerated because a live DB reclassifies over time.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'requirements.txt': 'requests==2.19.0\n',
+    },
+    expect: { 'requirements.txt': ['DEP-OSV-HIGH'] },
+    allowExtra: ['DEP-OSV-CRITICAL', 'DEP-OSV-LOWER'],
+  },
+  {
+    name: 'trap-osv-lockfile-in-fixtures',
+    categories: ['dependencies'],
+    // A vulnerable lockfile that is TEST DATA must not produce advisories —
+    // the context filter has to stop it before any OSV query happens. Works
+    // offline by design: an ignored lockfile means no network call at all.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'tests/fixtures/requirements.txt': 'requests==2.19.0\n',
+    },
+    expect: { 'tests/fixtures/requirements.txt': [] },
   },
 ];

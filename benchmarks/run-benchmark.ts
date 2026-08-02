@@ -16,11 +16,49 @@
  */
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { runAudit } from '../src/core/engine.js';
 import type { AnalysisCategory } from '../src/core/types.js';
 import { CASES } from './cases.js';
+
+// ── External-capability probes ─────────────────────────────────────────────
+// Cases marked `requires` are SKIPPED (loudly, below) when the capability is
+// missing: the benchmark measures OUR rules, and an absent binary or an
+// unreachable external API must never read as a regression.
+
+function semgrepAvailable(): boolean {
+  try {
+    execFileSync('semgrep', ['--version'], { stdio: 'ignore', timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function osvReachable(): Promise<boolean> {
+  try {
+    const res = await fetch('https://api.osv.dev/v1/querybatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queries: [] }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+const available: Record<string, boolean> = {
+  semgrep: semgrepAvailable(),
+  osv: await osvReachable(),
+};
+const SKIP_REASON: Record<string, string> = {
+  semgrep: 'semgrep not on PATH',
+  osv: 'api.osv.dev unreachable',
+};
 
 interface CaseResult {
   name: string;
@@ -51,7 +89,7 @@ async function runCase(c: (typeof CASES)[number]): Promise<CaseResult> {
         else fn.push(`${rel}: expected ${id}, not found`);
       }
       for (const id of actual) {
-        if (!expectedIds.includes(id)) fp.push(`${rel}: unexpected ${id}`);
+        if (!expectedIds.includes(id) && !(c.allowExtra ?? []).includes(id)) fp.push(`${rel}: unexpected ${id}`);
       }
     }
     return { name: c.name, tp, fn, fp, ms };
@@ -61,7 +99,14 @@ async function runCase(c: (typeof CASES)[number]): Promise<CaseResult> {
 }
 
 const results: CaseResult[] = [];
-for (const c of CASES) results.push(await runCase(c));
+const skipped: string[] = [];
+for (const c of CASES) {
+  if (c.requires && !available[c.requires]) {
+    skipped.push(`${c.name} (${SKIP_REASON[c.requires]})`);
+    continue;
+  }
+  results.push(await runCase(c));
+}
 
 const totalTp = results.reduce((n, r) => n + r.tp, 0);
 const totalFn = results.flatMap((r) => r.fn);
@@ -78,8 +123,9 @@ for (const r of results) {
   for (const m of r.fn) console.log(`      FN ${m}`);
   for (const m of r.fp) console.log(`      FP ${m}`);
 }
+for (const s of skipped) console.log(`  - ${s.padEnd(42)} SKIPPED`);
 console.log('──────────────────');
-console.log(`  cases ${results.length} · planted ${totalTp + totalFn.length} · found ${totalTp}`);
+console.log(`  cases ${results.length} · planted ${totalTp + totalFn.length} · found ${totalTp}${skipped.length ? ` · skipped ${skipped.length}` : ''}`);
 console.log(`  precision ${(precision * 100).toFixed(1)}% · recall ${(recall * 100).toFixed(1)}%`);
 console.log(`  total ${totalMs}ms · heap ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)}MB\n`);
 
