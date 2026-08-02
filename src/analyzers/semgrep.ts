@@ -96,6 +96,10 @@ export class SemgrepAnalyzer implements Analyzer {
         '--metrics=off',
         '--quiet',
         '--disable-version-check',
+        // The target repo is untrusted: honoring its .semgrepignore/.gitignore
+        // would let it exclude its own vulnerable files from the taint scan
+        // while PRISM still reports "clean". Scan everything we inventoried.
+        '--no-git-ignore',
         '--timeout',
         '10',
         '.',
@@ -127,10 +131,23 @@ export class SemgrepAnalyzer implements Analyzer {
     }
 
     let results: SemgrepResult[];
+    let scanErrors = 0;
+    let skippedPaths = 0;
     try {
-      const parsed = JSON.parse(raw) as { results?: SemgrepResult[] };
+      const parsed = JSON.parse(raw) as {
+        results?: SemgrepResult[];
+        errors?: unknown[];
+        paths?: { skipped?: unknown[] };
+      };
       if (!Array.isArray(parsed.results)) throw new Error('missing results[]');
       results = parsed.results;
+      // Coverage gaps: `--timeout 10` makes semgrep ABANDON a rule/file pair on
+      // timeout and record it in errors[]; parse/partial failures land there too,
+      // and files it declined to scan land in paths.skipped. Ignoring these is
+      // the "unknown ≠ clean" failure one level deeper — a timeout on the one
+      // big handler where the SQLi lives would otherwise read as clean.
+      scanErrors = Array.isArray(parsed.errors) ? parsed.errors.length : 0;
+      skippedPaths = Array.isArray(parsed.paths?.skipped) ? parsed.paths.skipped.length : 0;
     } catch (err) {
       return this.errorResult(err);
     }
@@ -138,14 +155,28 @@ export class SemgrepAnalyzer implements Analyzer {
     const findings = this.mapResults(results);
     const truncated = findings.length > MAX_FINDINGS;
     const kept = truncated ? findings.slice(0, MAX_FINDINGS) : findings;
+    const realCount = findings.length; // count of ACTUAL findings, before notices
     if (truncated) {
       kept.push(
         this.notice(
           'SEC-SEMGREP-TRUNCATED',
           'info',
-          `Semgrep findings truncated to ${MAX_FINDINGS}`,
-          `Semgrep produced ${findings.length} findings; only the first ${MAX_FINDINGS} are reported. A count this high usually means a rule is misfiring on generated or vendored code.`,
+          `Semgrep findings truncated to ${MAX_FINDINGS} of ${realCount}`,
+          `Semgrep produced ${realCount} findings; only the first ${MAX_FINDINGS} are reported (the other ${realCount - MAX_FINDINGS}, of any severity, are NOT shown). A count this high usually means a rule is misfiring on generated or vendored code.`,
           'Fix the dominant finding class (or exclude the offending paths) and re-run.',
+        ),
+      );
+    }
+
+    // A degraded scan (rule/file timeouts, skipped paths) is reported, not hidden.
+    if (scanErrors > 0 || skippedPaths > 0) {
+      kept.push(
+        this.notice(
+          'SEC-SEMGREP-INCOMPLETE',
+          'low',
+          'Semgrep coverage incomplete — some rule/file runs did not finish',
+          `Semgrep reported ${scanErrors} error(s)/timeout(s) and ${skippedPaths} skipped path(s); those files were NOT fully taint-analyzed. Their status is unknown, not clean.`,
+          'Re-run with a higher `--timeout`, or scan the largest files directly with semgrep to confirm.',
         ),
       );
     }
@@ -154,8 +185,14 @@ export class SemgrepAnalyzer implements Analyzer {
     for (const f of kept) score -= SEVERITY_DELTAS[f.severity];
     score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
 
+    const coverageNote =
+      scanErrors > 0 || skippedPaths > 0
+        ? ` · coverage incomplete (${scanErrors} error(s), ${skippedPaths} skipped)`
+        : '';
     const summary =
-      kept.length === 0 ? 'Semgrep taint analysis: clean' : `Semgrep taint analysis: ${kept.length} finding(s)`;
+      realCount === 0
+        ? `Semgrep taint analysis: clean${coverageNote}`
+        : `Semgrep taint analysis: ${realCount} finding(s)${truncated ? ` (showing ${MAX_FINDINGS})` : ''}${coverageNote}`;
     return this.result(score, kept, summary);
   }
 

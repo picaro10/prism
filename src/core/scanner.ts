@@ -83,7 +83,8 @@ export async function scanProject(rootPath: string): Promise<ProjectScan> {
 
   // Collect all files
   const files: string[] = [];
-  const fileTree = await walkDirectory(rootPath, rootPath, ig, files);
+  const warnings = { unreadableDirs: 0, unstatableFiles: 0 };
+  const fileTree = await walkDirectory(rootPath, rootPath, ig, files, warnings);
 
   // Detect stack
   const stack = detectStack(files);
@@ -95,6 +96,7 @@ export async function scanProject(rootPath: string): Promise<ProjectScan> {
     files,
     fileTree,
     meta,
+    ...(warnings.unreadableDirs > 0 || warnings.unstatableFiles > 0 ? { scanWarnings: warnings } : {}),
   };
 }
 
@@ -103,12 +105,15 @@ async function walkDirectory(
   rootPath: string,
   ig: ReturnType<typeof ignore>,
   collectedFiles: string[],
+  warnings: { unreadableDirs: number; unstatableFiles: number },
 ): Promise<FileNode[]> {
-  // An unreadable directory (EACCES) must not abort the whole scan.
+  // An unreadable directory (EACCES) must not abort the whole scan — but it is
+  // counted so the coverage gap is reported, not silently swallowed.
   let entries: Dirent[];
   try {
     entries = await readdir(currentPath, { withFileTypes: true });
   } catch {
+    warnings.unreadableDirs++;
     return [];
   }
   const nodes: FileNode[] = [];
@@ -126,7 +131,7 @@ async function walkDirectory(
     if (ig.ignores(entry.isDirectory() ? `${relPath}/` : relPath)) continue;
 
     if (entry.isDirectory()) {
-      const children = await walkDirectory(fullPath, rootPath, ig, collectedFiles);
+      const children = await walkDirectory(fullPath, rootPath, ig, collectedFiles, warnings);
       nodes.push({
         name: entry.name,
         path: relPath,
@@ -134,11 +139,14 @@ async function walkDirectory(
         children,
       });
     } else if (entry.isFile()) {
-      // A file removed/unreadable between readdir and stat must not abort.
+      // A file removed/unreadable between readdir and stat must not abort — but
+      // it is counted (it will be absent from `files`, so silence would let the
+      // inventory undercount).
       let size = 0;
       try {
         size = (await stat(fullPath)).size;
       } catch {
+        warnings.unstatableFiles++;
         continue;
       }
       collectedFiles.push(relPath);

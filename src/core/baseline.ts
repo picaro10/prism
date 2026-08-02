@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import type { AuditReport } from './types.js';
 import { runAudit } from './engine.js';
+import { SAFE_GIT_ARGS, safeGitEnv } from '../utils/git-safe.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -25,7 +26,10 @@ export async function resolveBaselineReport(ref: string, targetPath: string): Pr
   // subdirectory of it — audit the same relative path inside the worktree.
   let subPath = '';
   try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: targetPath });
+    const { stdout } = await execFileAsync('git', [...SAFE_GIT_ARGS, 'rev-parse', '--show-toplevel'], {
+      cwd: targetPath,
+      env: safeGitEnv(),
+    });
     // realpath BOTH sides: on Windows git prints the long forward-slash path
     // while Node may hold an 8.3 short form (RUNNER~1) — relative() between
     // the two mismatched spellings fabricates a bogus subPath and the audit
@@ -40,9 +44,15 @@ export async function resolveBaselineReport(ref: string, targetPath: string): Pr
   const parent = await mkdtemp(join(tmpdir(), 'prism-baseline-'));
   const worktree = join(parent, 'baseline');
   try {
-    await execFileAsync('git', ['worktree', 'add', '--detach', '--quiet', worktree, ref], {
+    // SECURITY: `worktree add` performs a CHECKOUT of an untrusted repo →
+    // post-checkout hooks + fsmonitor. SAFE_GIT_ARGS neutralizes both; the
+    // `--` terminates option parsing so a ref like `--foo` can't be read as a
+    // flag. (Smudge/clean filters from the repo's own .gitattributes are the
+    // documented residual; the zip path strips .git to close it for archives.)
+    await execFileAsync('git', [...SAFE_GIT_ARGS, 'worktree', 'add', '--detach', '--quiet', worktree, '--', ref], {
       cwd: targetPath,
       timeout: 60_000,
+      env: safeGitEnv(),
     });
   } catch (err) {
     await rm(parent, { recursive: true, force: true });
@@ -54,7 +64,10 @@ export async function resolveBaselineReport(ref: string, targetPath: string): Pr
     // Static-only: the baseline never needs the AI layer.
     return await runAudit({ targetPath: subPath ? join(worktree, subPath) : worktree, ai: false });
   } finally {
-    await execFileAsync('git', ['worktree', 'remove', '--force', worktree], { cwd: targetPath }).catch(() => {});
+    await execFileAsync('git', [...SAFE_GIT_ARGS, 'worktree', 'remove', '--force', worktree], {
+      cwd: targetPath,
+      env: safeGitEnv(),
+    }).catch(() => {});
     await rm(parent, { recursive: true, force: true }).catch(() => {});
   }
 }

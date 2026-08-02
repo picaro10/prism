@@ -62,15 +62,24 @@ const projectMetaSchema = z
   .loose();
 
 // AI sections are optional (only present after --ai / triage), but when
-// present they must hold what the renderers index them by: findingKey.
-const verdictSchema = z.object({ findingKey: z.string() }).loose();
+// present they must hold what the renderers index them by AND the shapes the
+// HTML/CLI renderers dereference without guards — otherwise a crafted report
+// crashes a renderer or (summary counts) injects HTML through a numeric slot.
+const verdictSchema = z
+  .object({
+    findingKey: z.string(),
+    classification: z.string(),
+    reasoning: z.string(),
+    confidence: z.number(),
+  })
+  .loose();
 const aiTriageSchema = z
   .object({
     verdicts: z.array(verdictSchema),
-    summary: z.object({}).loose(),
+    summary: z.object({ real: z.number(), falsePositive: z.number(), uncertain: z.number() }).loose(),
   })
   .loose();
-const remediationSchema = z.object({ findingKey: z.string(), fix: z.string() }).loose();
+const remediationSchema = z.object({ findingKey: z.string(), fix: z.string(), effort: z.string() }).loose();
 const suppressedFindingSchema = z.object({ finding: findingSchema, reason: z.string() }).loose();
 
 const reportSchema = z
@@ -80,7 +89,11 @@ const reportSchema = z
     overallScore: z.number(),
     categories: z.array(categorySchema),
     findings: z.array(findingSchema),
-    projectMeta: projectMetaSchema,
+    // Optional: present in every report since v1.0.0, but requiring it made the
+    // dashboard SILENTLY drop pre-1.0 / hand-written reports (server swallows
+    // parse failures) — a worse failure than a rendered "unknown". Renderers
+    // guard against its absence instead.
+    projectMeta: projectMetaSchema.optional(),
     aiTriage: aiTriageSchema.optional(),
     aiRemediation: z.array(remediationSchema).optional(),
     suppressed: z.array(suppressedFindingSchema).optional(),

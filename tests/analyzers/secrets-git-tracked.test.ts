@@ -93,6 +93,31 @@ describe('SEC-ENV-COMMITTED via git index (tracked but gitignored)', () => {
     }
   });
 
+  it('detects a tracked+gitignored .env when auditing a SUBDIRECTORY of the repo (monorepo)', async () => {
+    const mono = await mkdtemp(join(tmpdir(), 'prism-mono-'));
+    try {
+      git(mono, 'init', '-q');
+      await mkdir(join(mono, 'packages', 'api'), { recursive: true });
+      await writeFile(join(mono, 'packages', 'api', '.env'), 'API_KEY=sk-live-notaplaceholder123456\n');
+      await writeFile(join(mono, 'packages', 'api', 'index.js'), '1\n');
+      git(mono, 'add', '.');
+      git(mono, 'commit', '-q', '-m', 'monorepo leak');
+      await writeFile(join(mono, '.gitignore'), '.env\n');
+
+      // Audit the SUBDIRECTORY, not the repo root. There is no .git here, so the
+      // old hasGit gate would have skipped the index check entirely.
+      const sub = join(mono, 'packages', 'api');
+      const scan = await scanProject(sub);
+      expect(scan.meta.hasGit).toBe(false); // no .git at the subdir
+      const result = await new SecretsAnalyzer().analyze(scan, async (p) => readFile(join(sub, p), 'utf-8'));
+      const envFinding = result.findings.find((f) => f.id === 'SEC-ENV-COMMITTED');
+      expect(envFinding).toBeDefined();
+      expect(envFinding?.description).toContain('tracked in git');
+    } finally {
+      await rm(mono, { recursive: true, force: true });
+    }
+  });
+
   it('does not flag tracked fixture .env files (excluded context still applies)', async () => {
     const repo3 = await mkdtemp(join(tmpdir(), 'prism-git-env3-'));
     try {

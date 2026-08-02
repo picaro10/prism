@@ -34,3 +34,4 @@ reports/
 
 # Personal — internal session log, never published
 SESSION_LOG.md
+report.json

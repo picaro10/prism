@@ -170,6 +170,28 @@ describe('SemgrepAnalyzer', () => {
     expect(seenArgs).toContain('--json');
     expect(seenArgs.some((a) => a === '--config')).toBe(true);
     expect(seenArgs).toContain('--metrics=off');
+    expect(seenArgs).toContain('--no-git-ignore'); // repo can't exclude itself from the scan
     expect(seenCwd).toBe('/project');
+  });
+
+  it('surfaces semgrep errors[] / paths.skipped as a coverage-incomplete finding (unknown ≠ clean)', async () => {
+    const degraded = JSON.stringify({
+      results: [],
+      errors: [{ message: 'Timeout on big.ts' }, { message: 'partial parse' }],
+      paths: { scanned: ['src/app.ts'], skipped: [{ path: 'huge.ts', reason: 'too big' }] },
+    });
+    const res = await new SemgrepAnalyzer(fakeRunner(degraded)).analyze(scan, readFile);
+    const gap = res.findings.find((f) => f.id === 'SEC-SEMGREP-INCOMPLETE');
+    expect(gap).toBeDefined();
+    expect(gap?.severity).toBe('low');
+    expect(res.summary).toContain('coverage incomplete');
+    expect(res.score).toBeLessThan(10); // not a clean 10
+  });
+
+  it('reports the REAL finding count when truncating, not the capped+notice count', async () => {
+    const many = Array.from({ length: 250 }, (_, i) => result({ start: { line: i + 1, col: 1 } }));
+    const res = await new SemgrepAnalyzer(fakeRunner(semgrepJson(many))).analyze(scan, readFile);
+    expect(res.summary).toContain('250 finding(s)'); // not "201"
+    expect(res.summary).toContain('showing 200');
   });
 });

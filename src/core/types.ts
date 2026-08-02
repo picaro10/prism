@@ -150,6 +150,13 @@ export interface ProjectScan {
   fileTree: FileNode[];
   /** Detected metadata */
   meta: ProjectMeta;
+  /**
+   * Coverage the walk could NOT achieve: directories it could not read (EACCES)
+   * and files it could not stat. These entries are absent from `files`, so
+   * `files`/`totalFiles` undercount silently unless this is surfaced — an
+   * unreadable `src/` must not read as a small, clean project.
+   */
+  scanWarnings?: { unreadableDirs: number; unstatableFiles: number };
 }
 
 export interface FileNode {

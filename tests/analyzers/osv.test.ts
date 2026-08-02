@@ -267,6 +267,20 @@ describe('DEP-OSV-INCOMPLETE (coverage gaps are reported, not swallowed)', () =>
     expect(result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE')).toBeUndefined();
     expect(result.score).toBe(10);
   });
+
+  it('does NOT flag a ranges-only requirements.txt as incomplete (unpinned is DEP-PY-001, not a gap)', async () => {
+    const analyzer = new OsvAnalyzer(cleanOsv);
+    const reader: FileReader = async () => 'flask>=2.0\nrequests~=2.28\n-r base.txt\n';
+    const result = await analyzer.analyze(mkScan(['requirements.txt']), reader);
+    expect(result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE')).toBeUndefined();
+  });
+
+  it('DOES flag a non-empty Cargo.lock that yields nothing (real parse gap)', async () => {
+    const analyzer = new OsvAnalyzer(cleanOsv);
+    const reader: FileReader = async () => 'not valid toml at all {{{';
+    const result = await analyzer.analyze(mkScan(['Cargo.lock']), reader);
+    expect(result.findings.find((f) => f.id === 'DEP-OSV-INCOMPLETE')).toBeDefined();
+  });
 });
 
 describe('MAX_PACKAGES cap honesty', () => {

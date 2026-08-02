@@ -38,7 +38,21 @@ describe('parseReport', () => {
   });
 
   it('tolerates unknown extra keys (forward compatibility)', () => {
-    expect(parseReport({ ...validReport, aiTriage: { verdicts: [], summary: {} }, futureField: 1 })).not.toBeNull();
+    expect(
+      parseReport({
+        ...validReport,
+        aiTriage: { verdicts: [], summary: { real: 0, falsePositive: 0, uncertain: 0 } },
+        futureField: 1,
+      }),
+    ).not.toBeNull();
+  });
+
+  it('rejects an aiTriage.summary with non-numeric counts (XSS via numeric slot)', () => {
+    const broken = {
+      ...validReport,
+      aiTriage: { verdicts: [], summary: { real: '<img src=x onerror=alert(1)>', falsePositive: 0, uncertain: 0 } },
+    };
+    expect(parseReport(broken)).toBeNull();
   });
 
   it('rejects non-objects and junk', () => {
@@ -67,12 +81,14 @@ describe('parseReport', () => {
     expect(parseReport(rest)).toBeNull();
   });
 
-  it('rejects a report without projectMeta (HTML/CLI renderers dereference it unconditionally)', () => {
+  it('accepts a report WITHOUT projectMeta (older/hand-written reports; renderers guard it)', () => {
+    // Requiring it made the dashboard silently drop such reports — worse than a
+    // rendered "unknown". It is optional; the renderers guard against absence.
     const { projectMeta: _omitted, ...rest } = validReport;
-    expect(parseReport(rest)).toBeNull();
+    expect(parseReport(rest)).not.toBeNull();
   });
 
-  it('rejects a projectMeta missing the fields the renderers touch', () => {
+  it('rejects a projectMeta that is PRESENT but missing the fields the renderers touch', () => {
     const broken = { ...validReport, projectMeta: { stack: { primary: 'ts' } } };
     expect(parseReport(broken)).toBeNull();
   });

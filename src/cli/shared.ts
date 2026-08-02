@@ -1,4 +1,4 @@
-import { resolve, sep } from 'node:path';
+import { resolve, relative, isAbsolute } from 'node:path';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import chalk from 'chalk';
 import type { AuditReport } from '../core/types.js';
@@ -13,7 +13,7 @@ import type { AuditReport } from '../core/types.js';
 export const EXIT = { OK: 0, FINDINGS: 1, USAGE: 2, INTERNAL: 3 } as const;
 
 export const DEFAULT_MIN_SCORE = 6;
-export const CLI_VERSION = '1.5.0';
+export const CLI_VERSION = '1.5.1';
 
 /** Print a usage error (subsequent lines are detail) and exit 2. */
 export function usageError(...messages: string[]): never {
@@ -35,7 +35,7 @@ export function loadAllowlistedEnv(path: string): void {
   const ENV_ALLOWLIST = /^(ANTHROPIC_API_KEY|OPENROUTER_API_KEY|PRISM_[A-Z0-9_]*)$/;
   try {
     if (!existsSync(path)) return;
-    for (const line of readFileSync(path, 'utf-8').split('\n')) {
+    for (const line of readFileSync(path, 'utf-8').split(/\r?\n/)) {
       const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
       if (!m || !ENV_ALLOWLIST.test(m[1]) || m[1] in process.env) continue;
       let value = m[2];
@@ -43,7 +43,14 @@ export function loadAllowlistedEnv(path: string): void {
         value.length >= 2 &&
         ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
       ) {
+        // Quoted value: take it verbatim (an inline # inside quotes is data).
         value = value.slice(1, -1);
+      } else {
+        // Unquoted value: strip an inline comment (` #...`) the way dotenv does,
+        // otherwise `KEY=v # note` yields the literal `v # note` and every API
+        // call fails with an opaque auth error.
+        const hash = value.search(/\s#/);
+        if (hash !== -1) value = value.slice(0, hash).trimEnd();
       }
       process.env[m[1]] = value;
     }
@@ -87,7 +94,12 @@ export function checkReportRoot(recordedPath: string, rootOverride?: string): { 
   }
   if (!isDirectory(real)) return { reason: `the recorded project path is not a directory: ${real}` };
   const cwd = realpathSync(process.cwd());
-  if (real !== cwd && !real.startsWith(cwd + sep)) {
+  // Containment via relative(): '' means real === cwd; a path starting with '..'
+  // or an absolute path means it's outside. Using relative() instead of a
+  // `cwd + sep` prefix avoids the `cwd === '/'` edge (prefix '//') that refused
+  // every report when the process ran from a filesystem root (docker no WORKDIR).
+  const rel = relative(cwd, real);
+  if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) {
     return { reason: `the report records a project path outside the current directory: ${real}` };
   }
   return { root: real };

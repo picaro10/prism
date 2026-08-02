@@ -394,6 +394,17 @@ function buildSummary(
   parts.push(`${scan.meta.totalFiles} files scanned`);
   parts.push(`Stack: ${scan.meta.stack.primary}`);
 
+  // Root-cause coverage gap: the walk could not read some directories/files, so
+  // the whole inventory (and every analyzer's view) undercounts. Say it here —
+  // "clean" over an unreadable src/ is not clean.
+  if (scan.scanWarnings) {
+    const { unreadableDirs, unstatableFiles } = scan.scanWarnings;
+    const bits: string[] = [];
+    if (unreadableDirs > 0) bits.push(`${unreadableDirs} unreadable director${unreadableDirs === 1 ? 'y' : 'ies'}`);
+    if (unstatableFiles > 0) bits.push(`${unstatableFiles} unreadable file(s)`);
+    if (bits.length > 0) parts.push(`coverage incomplete — ${bits.join(', ')} (not scanned)`);
+  }
+
   if (scan.meta.frameworks.length > 0) {
     parts.push(`Frameworks: ${scan.meta.frameworks.join(', ')}`);
   }

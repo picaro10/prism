@@ -44,14 +44,19 @@ export class AgenticAnalyzer implements Analyzer {
       return ctx === 'source' && !isExcludedContext(ctx);
     });
 
+    let skipped = 0;
     for (const file of sourceFiles) {
       let content: string;
       try {
         content = await readFile(file);
       } catch {
+        skipped++;
         continue;
       }
-      if (content.length > MAX_FILE_SIZE) continue;
+      if (content.length > MAX_FILE_SIZE) {
+        skipped++;
+        continue;
+      }
 
       for (const line of detectShellInjection(content)) {
         findings.push({
@@ -165,10 +170,12 @@ export class AgenticAnalyzer implements Analyzer {
       category: 'agentic',
       score: capped,
       findings,
-      summary:
-        findings.length === 0
-          ? 'No agent-specific risks detected (shell injection, secrets/external content in prompts, unconfirmed destructive tools, public MCP binds, fail-open gates).'
-          : `${findings.length} agent-specific risk(s): ${parts.join(', ')}.`,
+      summary: (() => {
+        const coverage = skipped > 0 ? ` (${skipped} file(s) unreadable/too large — NOT analyzed)` : '';
+        return findings.length === 0
+          ? `No agent-specific risks detected (shell injection, secrets/external content in prompts, unconfirmed destructive tools, public MCP binds, fail-open gates)${coverage}.`
+          : `${findings.length} agent-specific risk(s): ${parts.join(', ')}${coverage}.`;
+      })(),
     };
   }
 }

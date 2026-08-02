@@ -3,6 +3,18 @@ import type { AuditReport, Finding, CategoryScore } from '../core/types.js';
 import type { Verdict, Remediation } from '../ai/types.js';
 import { findingKey } from '../ai/types.js';
 
+/**
+ * Strip control characters from text that originates in the AUDITED repo
+ * (finding titles carry dependency names / file paths, AI reasoning is fed repo
+ * content). An ESC sequence printed verbatim can rewrite or erase earlier lines
+ * of the operator's report — a critical finding could be scrolled out of view.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point.
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
+function clean(text: string): string {
+  return text.replace(CONTROL_CHARS, '');
+}
+
 function verdictLabel(v: Verdict): string {
   if (v.classification === 'real') return chalk.green('✓ real');
   if (v.classification === 'false-positive') return chalk.dim('✗ likely FP');
@@ -117,6 +129,9 @@ function wrapText(text: string, width: number): string[] {
 
 function renderProjectInfo(report: AuditReport): void {
   const m = report.projectMeta;
+  // projectMeta is optional (older/hand-written reports). Skip the block rather
+  // than crash on a missing field.
+  if (!m) return;
 
   console.log(chalk.bold('  Project Overview'));
   console.log(chalk.dim('  ─────────────────'));
@@ -165,10 +180,20 @@ function renderCategoryBreakdown(categories: CategoryScore[]): void {
       cat.findings.length > 0 ? chalk.dim(` (${cat.findings.length} findings)`) : chalk.dim(' (clean)');
 
     console.log(`  ${label} ${bar}  ${colorFn(`${cat.score}/10`)}${findingCount}`);
+    // Surface a coverage gap the score alone hides: "clean" over files that were
+    // never read is not the same as clean. The analyzer states it in its summary
+    // (files skipped/unreadable, OSV/semgrep incomplete); show that line so the
+    // human doesn't read a green bar as full coverage.
+    if (cat.summary && COVERAGE_GAP.test(cat.summary)) {
+      console.log(`  ${' '.repeat(14)} ${chalk.yellow('⚠')} ${chalk.dim(clean(cat.summary))}`);
+    }
   }
 
   console.log('');
 }
+
+/** Phrases an analyzer uses to disclose that it could not cover everything. */
+const COVERAGE_GAP = /not scanned|not checked|unreadable|skipped|incomplete|unknown|could not/i;
 
 function renderFindings(
   findings: Finding[],
@@ -203,20 +228,22 @@ function renderFindings(
     console.log(`  ${icon} ${colorFn(severity.toUpperCase())} (${items.length})`);
 
     for (const finding of items) {
-      const location = finding.file ? chalk.dim(` → ${finding.file}${finding.line ? `:${finding.line}` : ''}`) : '';
+      const location = finding.file
+        ? chalk.dim(` → ${clean(finding.file)}${finding.line ? `:${finding.line}` : ''}`)
+        : '';
 
-      console.log(`    ${chalk.white(finding.id)} ${finding.title}${location}`);
+      console.log(`    ${chalk.white(clean(finding.id))} ${clean(finding.title)}${location}`);
 
       const verdict = verdictByKey.get(findingKey(finding));
       if (verdict) {
         const pct = Math.round(Math.min(1, Math.max(0, verdict.confidence)) * 100);
-        console.log(`      ${verdictLabel(verdict)} ${chalk.dim(`(${pct}%)`)} — ${verdict.reasoning}`);
+        console.log(`      ${verdictLabel(verdict)} ${chalk.dim(`(${pct}%)`)} — ${clean(verdict.reasoning)}`);
       }
 
       const fix = fixByKey.get(findingKey(finding));
       if (fix) {
-        const lines = wrapText(fix.fix, 66);
-        console.log(`      🔧 ${chalk.bold('fix')} ${chalk.dim(`(${fix.effort} effort)`)} — ${lines[0]}`);
+        const lines = wrapText(clean(fix.fix), 66);
+        console.log(`      🔧 ${chalk.bold('fix')} ${chalk.dim(`(${clean(fix.effort)} effort)`)} — ${lines[0]}`);
         for (const line of lines.slice(1)) {
           console.log(`         ${line}`);
         }

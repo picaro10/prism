@@ -117,6 +117,7 @@ export class TestsAnalyzer implements Analyzer {
     let totalSkipped = 0;
     let totalDecorative = 0;
     let totalEmpty = 0;
+    let readErrors = 0;
 
     for (const testFile of testFiles) {
       try {
@@ -253,7 +254,7 @@ export class TestsAnalyzer implements Analyzer {
           }
         }
       } catch {
-        // Can't read — skip
+        readErrors++;
       }
     }
 
@@ -270,7 +271,14 @@ export class TestsAnalyzer implements Analyzer {
       category: 'tests',
       score: Math.max(0, Math.min(10, Math.round(score * 10) / 10)),
       findings,
-      summary: buildSummary(testFiles.length, sourceFiles.length, totalDecorative, totalSkipped, totalEmpty),
+      summary: buildSummary(
+        testFiles.length - readErrors,
+        sourceFiles.length,
+        totalDecorative,
+        totalSkipped,
+        totalEmpty,
+        readErrors,
+      ),
     };
   }
 }
@@ -408,13 +416,29 @@ export function findPythonDecorativeTests(content: string, _file: string): strin
 }
 
 /**
- * Blank out single-line string literal CONTENTS so pattern counters don't
- * match code that is merely quoted — a test file holding `'it.skip("x")'` as
- * fixture DATA is not a skipped test (real FP: PRISM's own self-analysis).
- * Multi-line template literals are beyond a line-based heuristic; accepted.
+ * Blank out comments, regex literals, and string literal CONTENTS so pattern
+ * counters don't match code that is merely quoted or commented — a test file
+ * holding `it.skip("x")` as fixture DATA, or `/* it's flaky *​/` in a comment,
+ * is not a skipped test (real FPs: PRISM's own self-analysis).
+ *
+ * Order matters: comments and regex literals are removed FIRST, because an
+ * apostrophe inside a comment (`// it's flaky`) or a quote inside a regex
+ * (`/['"]/`) would otherwise desync the string matcher and swallow the real
+ * `it.skip(...)` that follows on the same line (a false negative — a hidden
+ * skipped test). Multi-line template literals remain a line-based-heuristic gap.
  */
 export function stripStringLiterals(content: string): string {
-  return content.replace(/(["'`])(?:\\.|(?!\1)[^\n\\])*\1/g, '""');
+  return (
+    content
+      // Block comments (possibly multi-line).
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      // Line comments.
+      .replace(/\/\/[^\n]*/g, ' ')
+      // Regex literals: a `/.../ ` not opening a comment, no newline inside.
+      .replace(/\/(?![/*])(?:\\.|\[(?:\\.|[^\]\n])*\]|[^/\n\\])+\/[a-z]*/g, ' ')
+      // String / template literal contents.
+      .replace(/(["'`])(?:\\.|(?!\1)[^\n\\])*\1/g, '""')
+  );
 }
 
 /**
@@ -447,14 +471,16 @@ function buildSummary(
   decorative: number,
   skipped: number,
   empty: number,
+  readErrors: number,
 ): string {
   const ratio = ((testCount / Math.max(sourceCount, 1)) * 100).toFixed(0);
-  const parts: string[] = [`${testCount} test files, ${sourceCount} source files (${ratio}% ratio)`];
+  const parts: string[] = [`${testCount} test files parsed, ${sourceCount} source files (${ratio}% ratio)`];
 
+  if (readErrors > 0) parts.push(`${readErrors} unreadable (not analyzed)`);
   if (decorative > 0) parts.push(`${decorative} decorative`);
   if (skipped > 0) parts.push(`${skipped} skipped`);
   if (empty > 0) parts.push(`${empty} empty`);
-  if (decorative === 0 && skipped === 0 && empty === 0) parts.push('test suite looks healthy');
+  if (decorative === 0 && skipped === 0 && empty === 0 && readErrors === 0) parts.push('test suite looks healthy');
 
   return parts.join(' · ');
 }

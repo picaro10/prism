@@ -105,6 +105,22 @@ describe('extractZip', () => {
     await expect(extractZip(zipPath)).rejects.toThrow(/unsafe entry path/);
   });
 
+  it('strips a live .git directory from the extracted archive (no smuggled hook/config)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'prism-zip-git-'));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const zip = new AdmZip();
+    zip.addFile('package.json', Buffer.from('{"name":"app"}'));
+    zip.addFile('.git/config', Buffer.from('[core]\n\tfsmonitor = sh -c "touch /tmp/pwn"\n'));
+    zip.addFile('.git/hooks/post-checkout', Buffer.from('#!/bin/sh\ntouch /tmp/pwn\n'));
+    const zipPath = join(dir, 'app.zip');
+    await writeFile(zipPath, zip.toBuffer());
+
+    const resolved = await extractZip(zipPath);
+    cleanups.push(resolved.cleanup);
+    await expect(access(join(resolved.path, 'package.json'))).resolves.toBeUndefined();
+    await expect(access(join(resolved.path, '.git'))).rejects.toThrow(); // .git removed
+  });
+
   it('throws a clear error for a corrupt archive', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'prism-zip-bad-'));
     cleanups.push(() => rm(dir, { recursive: true, force: true }));

@@ -44,11 +44,14 @@ export class WorkflowAnalyzer implements Analyzer {
       ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'].includes(f.split('/').pop() ?? ''),
     );
 
+    let readErrors = 0;
+    let notObject = 0;
     for (const file of workflowFiles) {
       let raw: string;
       try {
         raw = await readFile(file);
       } catch {
+        readErrors++;
         continue;
       }
 
@@ -70,7 +73,10 @@ export class WorkflowAnalyzer implements Analyzer {
         score -= 0.5;
         continue;
       }
-      if (typeof doc !== 'object' || doc === null) continue;
+      if (typeof doc !== 'object' || doc === null) {
+        notObject++;
+        continue;
+      }
       const wf = doc as Record<string, unknown>;
 
       for (const f of checkWorkflow(wf, raw, file, { branches, hasLockfile })) {
@@ -86,10 +92,16 @@ export class WorkflowAnalyzer implements Analyzer {
       category: 'workflow',
       score: capped,
       findings,
-      summary:
-        findings.length === 0
-          ? `${workflowFiles.length} workflow(s) checked — no CI/CD risks detected.`
-          : `${findings.length} CI/CD risk(s) across ${workflowFiles.length} workflow(s).`,
+      summary: (() => {
+        const checked = workflowFiles.length - readErrors - notObject;
+        const gap =
+          readErrors + notObject > 0
+            ? ` · ${readErrors + notObject} NOT checked (unreadable/empty — status unknown)`
+            : '';
+        return findings.length === 0
+          ? `${checked} workflow(s) checked — no CI/CD risks detected${gap}.`
+          : `${findings.length} CI/CD risk(s) across ${checked} workflow(s)${gap}.`;
+      })(),
     };
   }
 }

@@ -285,4 +285,13 @@ describe('countSkippedTests string-literal immunity', () => {
   it('still counts a real skip on a line that also has a string', () => {
     expect(countSkippedTests('it.skip("flaky on CI", () => {});')).toBe(1);
   });
+
+  it('does NOT hide a real skip preceded by an apostrophe in a comment (false-negative regression)', () => {
+    expect(countSkippedTests(`/* it's flaky */ it.skip('renders', fn);`)).toBe(1);
+    expect(countSkippedTests(`// disabled it.skip note\nit.skip('real', fn);`)).toBe(1);
+  });
+
+  it('does NOT hide a real skip after a regex literal containing a quote', () => {
+    expect(countSkippedTests(`const q = /['"]/; it.skip('x', fn);`)).toBe(1);
+  });
 });

@@ -59,6 +59,25 @@ describe('assignFingerprints', () => {
     expect(typeof findings[0].fingerprint).toBe('string');
   });
 
+  it('distinguishes two line-less findings by title ACROSS reports (lodash vs express wildcard)', async () => {
+    // The gate-blind-spot: DEP-002 for lodash in the baseline and DEP-002 for
+    // express in the current report must NOT hash to the same fingerprint, or a
+    // swapped wildcard dep looks unchanged to the new-code gate.
+    const lodash = [finding({ id: 'DEP-002', file: 'package.json', title: 'Wildcard version for lodash' })];
+    const express = [finding({ id: 'DEP-002', file: 'package.json', title: 'Wildcard version for express' })];
+    await assignFingerprints(lodash, async () => '{}');
+    await assignFingerprints(express, async () => '{}');
+    expect(lodash[0].fingerprint).not.toBe(express[0].fingerprint);
+  });
+
+  it('keeps a count-bearing line-less title stable as the count changes', async () => {
+    const three = [finding({ id: 'TST-012', file: 'a.test.ts', title: '3 skipped test(s) in a.test.ts' })];
+    const five = [finding({ id: 'TST-012', file: 'a.test.ts', title: '5 skipped test(s) in a.test.ts' })];
+    await assignFingerprints(three, async () => 'x');
+    await assignFingerprints(five, async () => 'x');
+    expect(three[0].fingerprint).toBe(five[0].fingerprint); // digit-insensitive → same identity
+  });
+
   it('disambiguates line-less findings sharing id+file (two wildcard deps → two identities)', async () => {
     // Two DEP-002 findings on package.json, no line: before the fix both
     // hashed to id+file only, so the baseline diff conflated them.

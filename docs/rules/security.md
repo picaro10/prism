@@ -61,7 +61,8 @@ findings like any others — that pass is what kills the false positives taint a
 
 Notices (no dataflow finding, they report the engine's own state): `SEC-SEMGREP-MISSING` (info, not
 installed), `SEC-SEMGREP-ERROR` (low, installed but the scan failed — unknown ≠ clean),
-`SEC-SEMGREP-TRUNCATED` (info, >200 findings capped).
+`SEC-SEMGREP-TRUNCATED` (info, >200 findings capped), `SEC-SEMGREP-INCOMPLETE` (low, some rule/file
+runs errored or timed out or were skipped — those files were not fully taint-analyzed; unknown ≠ clean).
 
 Context rules apply as everywhere else: fixture/template/vendor/generated findings are skipped,
 test-file findings step down one severity.

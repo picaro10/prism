@@ -3,12 +3,18 @@ import { writeReportFile } from './write.js';
 
 /** Escape text for safe interpolation into XML (content and attributes). */
 export function escapeXml(text: string): string {
-  return text
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
+  return (
+    text
+      // Drop XML-1.0-illegal control chars (from untrusted repo file names /
+      // finding text) that would make the JUnit file unparseable by CI.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — stripping them is the point.
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&apos;')
+  );
 }
 
 function testcase(f: Finding): string {

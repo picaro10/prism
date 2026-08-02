@@ -28,6 +28,13 @@ const OSV_API = 'https://api.osv.dev';
 const QUERY_CHUNK = 500; // OSV querybatch hard limit is 1000
 const MAX_PACKAGES = 2000;
 /**
+ * Lockfile names where parsing to zero packages is NORMAL, not a coverage gap:
+ * requirements.txt with only version ranges (unpinned — DEP-PY-001's job) and
+ * go.mod with no `require` block. Flagging these as DEP-OSV-INCOMPLETE was a
+ * false positive on ordinary projects.
+ */
+const ZERO_YIELD_IS_NORMAL = new Set(['requirements.txt', 'go.mod']);
+/**
  * Detail lookups per run. This is a budget on TRUTH, not on noise: whatever
  * falls outside is reported as explicitly unclassified (DEP-OSV-UNKNOWN,
  * medium) — never quietly folded into the low bucket. Sized so a realistic
@@ -153,15 +160,21 @@ export class OsvAnalyzer implements Analyzer {
         continue;
       }
       // A genuinely empty lockfile has zero deps — nothing unchecked. Only a
-      // NON-empty file that yields no packages is a parse-coverage gap.
+      // NON-empty file that yields no packages is a parse-coverage gap...
       if (content.trim() === '') continue;
       const parsed = parseLockfile(basename(file), content);
       if (parsed.length > 0) files.push(file);
-      else zeroYield.push(file);
+      // ...EXCEPT requirements.txt/go.mod, where yielding zero is normal, not a
+      // parse failure: the requirements parser accepts only exact `==` pins (a
+      // ranges-only file is legitimately unpinned — DEP-PY-001 covers that) and
+      // a go.mod may have no `require` block. Flagging those as "incomplete"
+      // was a false positive on ordinary Python/Go projects.
+      else if (!ZERO_YIELD_IS_NORMAL.has(basename(file))) zeroYield.push(file);
       for (const pkg of parsed) {
         const key = `${pkg.ecosystem}|${pkg.name}|${pkg.version}`;
-        if (seen.has(key)) continue;
+        if (seen.has(key)) continue; // duplicate of an already-seen package → not a new drop
         if (seen.size >= MAX_PACKAGES) {
+          seen.add(key); // remember it so further copies don't recount the drop
           droppedByCap++;
           continue;
         }

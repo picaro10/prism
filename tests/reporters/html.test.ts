@@ -83,6 +83,39 @@ describe('formatHtmlReport', () => {
     expect(html).not.toContain('<script>x</script>');
   });
 
+  it('neutralizes a crafted aiTriage.summary count (the H1 XSS slot)', () => {
+    const html = formatHtmlReport(
+      report({
+        aiTriage: {
+          verdicts: [],
+          summary: {
+            real: `<img src=x onerror=fetch('//evil')>` as unknown as number,
+            falsePositive: 0,
+            uncertain: 0,
+          },
+        },
+      }),
+    );
+    expect(html).not.toContain('onerror=');
+    expect(html).not.toContain('<img src=x');
+  });
+
+  it('does not crash on an unknown verdict classification or missing fix fields (untrusted report)', () => {
+    const f = finding({ id: 'X-9', file: 'a.ts', line: 1 });
+    expect(() =>
+      formatHtmlReport(
+        report({
+          findings: [f],
+          aiTriage: {
+            verdicts: [{ findingKey: 'X-9|a.ts|1', classification: 'weird' as never, confidence: 2, reasoning: 'r' }],
+            summary: { real: 0, falsePositive: 0, uncertain: 1 },
+          },
+          aiRemediation: [{ findingKey: 'X-9|a.ts|1', fix: undefined as never, effort: undefined as never }],
+        }),
+      ),
+    ).not.toThrow();
+  });
+
   it('groups findings by severity in order', () => {
     const html = formatHtmlReport(
       report({ findings: [finding({ id: 'L', severity: 'low' }), finding({ id: 'C', severity: 'critical' })] }),

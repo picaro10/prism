@@ -218,4 +218,21 @@ describe('loadAllowlistedEnv', () => {
   it('is a no-op for a missing file', () => {
     expect(() => loadAllowlistedEnv('/nope/definitely/missing/.env')).not.toThrow();
   });
+
+  it('strips an inline # comment from an unquoted value but keeps # inside quotes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prism-env3-'));
+    const p = join(dir, '.env');
+    writeFileSync(p, 'ANTHROPIC_API_KEY=sk-ant-real # work key\r\nOPENROUTER_API_KEY="or#notacomment"\r\n');
+    const saved = process.env;
+    try {
+      const { ANTHROPIC_API_KEY: _a, OPENROUTER_API_KEY: _o, ...rest } = saved;
+      process.env = { ...rest };
+      loadAllowlistedEnv(p);
+      expect(process.env.ANTHROPIC_API_KEY).toBe('sk-ant-real'); // inline comment + CRLF handled
+      expect(process.env.OPENROUTER_API_KEY).toBe('or#notacomment'); // # inside quotes preserved
+    } finally {
+      process.env = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

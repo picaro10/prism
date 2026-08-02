@@ -21,7 +21,7 @@ describe('runAudit', { timeout: 120_000 }, () => {
     expect(report.overallScore).toBeGreaterThanOrEqual(0);
     expect(report.overallScore).toBeLessThanOrEqual(10);
     expect(report.categories.length).toBeGreaterThan(0);
-    expect(report.prismVersion).toBe('1.5.0');
+    expect(report.prismVersion).toBe('1.5.1');
   });
 
   it('includes all analyzer categories', async () => {

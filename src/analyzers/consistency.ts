@@ -40,11 +40,13 @@ export class ConsistencyAnalyzer implements Analyzer {
     const mixedLangFiles: string[] = [];
     const indentStyles = { tabs: 0, spaces: 0, mixed: 0 };
 
+    let readErrors = 0;
     for (const file of sourceFiles) {
       let content: string;
       try {
         content = await readFile(file);
       } catch {
+        readErrors++;
         continue;
       }
 
@@ -105,7 +107,7 @@ export class ConsistencyAnalyzer implements Analyzer {
       category: 'consistency',
       score: Math.max(0, Math.min(10, Math.round(score * 10) / 10)),
       findings,
-      summary: buildSummary(findings, sourceFiles.length),
+      summary: buildSummary(findings, sourceFiles.length - readErrors, readErrors),
     };
   }
 }
@@ -320,11 +322,12 @@ export function detectIndentation(content: string): IndentStyle {
   return 'none';
 }
 
-function buildSummary(findings: Finding[], fileCount: number): string {
+function buildSummary(findings: Finding[], fileCount: number, readErrors: number): string {
+  const gap = readErrors > 0 ? ` · ${readErrors} unreadable (not analyzed)` : '';
   if (findings.length === 0) {
-    return `${fileCount} source files · naming, language, and formatting are consistent`;
+    return `${fileCount} source files read · naming, language, and formatting are consistent${gap}`;
   }
   return `${findings.length} consistency issue(s) across ${fileCount} source files: ${findings
     .map((f) => f.id)
-    .join(', ')}`;
+    .join(', ')}${gap}`;
 }

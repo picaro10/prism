@@ -79,7 +79,11 @@ export function assertSafeGitUrl(url: string): void {
 export function repoNameFromUrl(url: string): string {
   const tail = url.replace(/\/+$/, '').split(/[/:]/).pop();
   const name = (tail ?? 'repo').replace(/\.git$/, '');
-  return name || 'repo';
+  // Sanitize to a plain path segment: a tail of `..` (from `.../repo/..`) would
+  // make the clone destination escape the temp dir. Keep only safe chars and
+  // reject bare dot segments.
+  const safe = name.replace(/[^A-Za-z0-9._-]/g, '');
+  return !safe || safe === '.' || safe === '..' ? 'repo' : safe;
 }
 
 /**
@@ -149,6 +153,11 @@ export async function extractZip(zipPath: string): Promise<ResolvedTarget> {
       }
     }
     zip.extractAllTo(dest, true);
+    // SECURITY: a downloaded archive must never carry a live `.git/` — its
+    // config could hold core.fsmonitor / hooks / smudge filters that git would
+    // execute as the operator on any later git call (baseline worktree add,
+    // tracked-.env ls-files). Auditing needs the files, not the repo history.
+    await rm(join(dest, '.git'), { recursive: true, force: true }).catch(() => {});
   } catch (err) {
     untrackTemp(parent);
     await rm(parent, { recursive: true, force: true });

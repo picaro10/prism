@@ -3,6 +3,27 @@ import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
+/**
+ * Env that neuters the untrusted repo's `.npmrc` for the `npm audit` run.
+ * Pinning `registry` alone was not enough: `.npmrc` also controls transport
+ * (`proxy`/`https-proxy`), TLS trust (`cafile`/`ca`/`strict-ssl`) — a hostile
+ * repo could MITM the audit request to exfiltrate the dependency tree plus the
+ * operator's registry auth header, and forge a clean result.
+ *
+ * The `npm_config_*` ENV layer outranks every npmrc file (env > project .npmrc
+ * > user > global), so these overrides win over the repo's own .npmrc. (We do
+ * NOT set userconfig/globalconfig to /dev/null — npm rejects the same path for
+ * both, and the env layer already outranks those files anyway.)
+ */
+const NPM_AUDIT_ENV: Record<string, string> = {
+  npm_config_registry: 'https://registry.npmjs.org/',
+  npm_config_proxy: '',
+  npm_config_https_proxy: '',
+  npm_config_cafile: '',
+  npm_config_ca: '',
+  npm_config_strict_ssl: 'true',
+};
+
 export class DependenciesAnalyzer implements Analyzer {
   readonly name = 'dependencies';
   readonly category = 'dependencies' as const;
@@ -125,15 +146,17 @@ export class DependenciesAnalyzer implements Analyzer {
         // report is still on stdout. Read it from both success and error.
         let auditJson: string | undefined;
         try {
-          auditJson = execSync('npm audit --json', {
+          // Constant command (no interpolation) → no shell-injection surface.
+          // `--ignore-scripts` is defense in depth (audit itself runs none).
+          auditJson = execSync('npm audit --json --ignore-scripts', {
             cwd: scan.rootPath,
             timeout: 30_000,
             encoding: 'utf-8',
+            maxBuffer: 32 * 1024 * 1024, // large dep trees blow the 1 MB default → false SKIP
             stdio: ['ignore', 'pipe', 'ignore'],
-            // The analyzed repo is untrusted: a malicious .npmrc in it could
-            // point registry= at an attacker host and exfiltrate the dep tree.
-            // env config outranks the repo's .npmrc, so pin the public registry.
-            env: { ...process.env, npm_config_registry: 'https://registry.npmjs.org/' },
+            // The analyzed repo is untrusted: neuter its .npmrc (registry,
+            // proxy, TLS trust) so the audit can't be redirected or MITM'd.
+            env: { ...process.env, ...NPM_AUDIT_ENV },
           });
         } catch (err) {
           const stdout = (err as { stdout?: string | Buffer } | null)?.stdout;
@@ -207,6 +230,21 @@ export class DependenciesAnalyzer implements Analyzer {
           });
           scoreDelta -= 1;
         }
+      } else if (hasLockFile) {
+        // A yarn/pnpm lockfile exists but there's no package-lock.json, so
+        // `npm audit` can't run. Silence here used to read as "no vulns" — the
+        // same unknown-≠-clean failure, just for non-npm package managers.
+        findings.push({
+          id: 'DEP-AUDIT-SKIP',
+          category: 'dependencies',
+          severity: 'low',
+          title: 'Dependency vulnerabilities NOT checked — vulnerability status UNKNOWN',
+          description:
+            'A yarn/pnpm lockfile is present but PRISM audits npm dependencies via `npm audit`, which needs package-lock.json. Known-vulnerability status for these dependencies is unknown, not clean.',
+          suggestion: 'Run `yarn audit` / `pnpm audit` in the project, or generate a package-lock.json.',
+          meta: { packageManager: scan.meta.packageManager ?? 'unknown' },
+        });
+        scoreDelta -= 1;
       }
 
       // --- Check: scripts.test exists ---

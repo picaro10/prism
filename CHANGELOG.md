@@ -3,6 +3,80 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [1.5.1] — 2026-08-03
+
+**Security + honesty follow-up to 1.5.0.** A second adversarial audit (three
+parallel review passes + empirical attacks on the published CLI) found real
+defects — two of them **RCE regressions introduced by 1.5.0 itself**. 1.5.0 is
+deprecated on npm; upgrade.
+
+### Security — Critical
+- **RCE via `git ls-files` on an untrusted repo (introduced in 1.5.0).** The
+  1.5.0 tracked-`.env` check invoked `git`, and `git` honors a repo-config
+  `core.fsmonitor` command — verified: it executes. A repo shipping its own
+  `.git/config` (unpacked from a zip/artifact) ran code as the operator on
+  `prism analyze`. All git invocations now run with `core.fsmonitor=false`,
+  `core.hooksPath=/dev/null`, `protocol.ext.allow=never`, and system/global
+  config neutered (`src/utils/git-safe.ts`).
+- **RCE via `git worktree add --baseline` (pre-existing).** The baseline
+  checkout ran post-checkout hooks / fsmonitor from the untrusted repo. Same
+  hardening applied; `--` terminates option parsing.
+- **Downloaded archives are stripped of `.git/`** after extraction, closing the
+  hook/fsmonitor/smudge vector for zip targets at the source.
+
+### Security — High
+- **HTML/dashboard stored XSS** via `aiTriage.summary` counts (the one
+  unescaped slot); numeric coercion applied and the schema now requires numeric
+  summary fields.
+- **`npm audit` no longer trusts the repo's `.npmrc` transport/TLS** (proxy,
+  cafile, strict-ssl) — a hostile `.npmrc` could MITM the request and exfiltrate
+  the dep tree + registry auth. Env overrides pin them; `--ignore-scripts` and a
+  32 MB buffer added.
+
+### Fixed
+- **Cross-report fingerprint collision (1.5.0 fix was incomplete).** A wildcard
+  dep swapped for a different one (both `DEP-002` on `package.json`) was
+  invisible to the new-code gate. Line-less fingerprints now include a
+  digit-normalized title discriminator. **One-time effect: baselines captured
+  under ≤1.5.0 will show line-less findings as "new" on the first 1.5.1 run —
+  re-capture the baseline once after upgrading.**
+- **Tracked-`.env` detection now works when auditing a subdirectory** of a repo
+  (the check was gated on a `.git` entry at the audit root).
+- **`stripStringLiterals` no longer hides a real skipped test** when an
+  apostrophe in a comment or a quote in a regex precedes it (comments + regex
+  literals are stripped first).
+- **`loadAllowlistedEnv`** strips inline `# comments` from unquoted values and
+  handles CRLF (a `KEY=v # note` no longer 401s every AI call).
+- **`checkReportRoot`** no longer refuses every report when the process runs
+  from a filesystem root (docker with no WORKDIR).
+- **Secrets counters**: files skipped as security-tools are not counted as
+  "scanned", and a processing error no longer double-counts a file as unreadable.
+- **OSV**: a ranges-only `requirements.txt` / `require`-less `go.mod` no longer
+  raises a false `DEP-OSV-INCOMPLETE`; the over-cap drop count no longer
+  multiplies across lockfiles.
+
+### Changed — honesty
+- **Coverage gaps are shown in the CLI and HTML**, not just JSON: every
+  analyzer's read-error/skip/incomplete disclosure now renders under the
+  category score (it previously lived only in `category.summary`, which those
+  reporters never printed).
+- **yarn/pnpm projects** now get an explicit `DEP-AUDIT-SKIP` (npm audit can't
+  check them) instead of silent "clean".
+- **semgrep** surfaces `errors[]`/`paths.skipped` as `SEC-SEMGREP-INCOMPLETE`
+  (a rule/file timeout no longer reads as "clean"), scans with `--no-git-ignore`
+  (a repo can't exclude itself), and reports the real finding count when capped.
+- **The scanner** counts unreadable directories / unstat-able files and the
+  structure summary surfaces them (the inventory no longer undercounts silently).
+- **`projectMeta` is optional again** with renderer guards — requiring it made
+  the dashboard silently drop older reports.
+
+### Security — Low / hardening
+- `git-refs` walk uses `lstat` + a depth cap (no symlink-loop DoS) and caps
+  `packed-refs` size; `repoNameFromUrl` is sanitized (no `..`); JUnit + CLI
+  output strip control characters from untrusted finding text; the update-check
+  cache moved to a per-user tmp dir with a symlink guard and version-shape
+  validation.
+
 ## [1.5.0] — 2026-08-03
 
 **The trust-boundary and honesty release** — every functional finding from the

@@ -96,12 +96,13 @@ export class SecretsAnalyzer implements Analyzer {
     // The inventory alone has a blind spot: it is filtered through .gitignore,
     // and ignoring a file does not untrack it. A .env committed BEFORE being
     // gitignored stays in the repo while vanishing from scan.files — so ask
-    // the git index directly. Degrades to [] when git is unavailable.
+    // the git index directly. We do NOT gate on scan.meta.hasGit (that only
+    // checks for a `.git` entry AT the root, so auditing a SUBDIRECTORY of a
+    // repo would skip the check entirely) — gitTrackedFiles() scopes to the
+    // rootPath subtree and returns null when it isn't a work tree at all.
     let trackedEnvFiles: string[] = [];
-    if (scan.meta.hasGit) {
-      const tracked = await gitTrackedFiles(scan.rootPath);
-      if (tracked) trackedEnvFiles = tracked.filter(isRealEnvFile);
-    }
+    const tracked = await gitTrackedFiles(scan.rootPath);
+    if (tracked) trackedEnvFiles = tracked.filter(isRealEnvFile);
 
     const allEnvFiles = [...new Set([...envFiles, ...trackedEnvFiles])];
     if (allEnvFiles.length > 0) {
@@ -172,23 +173,33 @@ export class SecretsAnalyzer implements Analyzer {
         continue;
       }
 
+      // Only the read itself may fail with an I/O error — keep the try narrow so
+      // a throw deeper in pattern matching can't be miscounted as "unreadable".
+      let content: string;
       try {
-        const content = await readFile(file);
+        content = await readFile(file);
+      } catch {
+        readErrors++;
+        continue;
+      }
 
-        // Skip files that are too large
-        if (content.length > MAX_FILE_SIZE) {
-          skippedLarge++;
-          continue;
-        }
-        scannedCount++;
+      // Skip files that are too large
+      if (content.length > MAX_FILE_SIZE) {
+        skippedLarge++;
+        continue;
+      }
 
-        // Content-based context: detect security tools (scanners, validators)
-        const effectiveContext =
-          context === 'source' && isSecurityTool(content) ? ('security-tool' as FileContext) : context;
+      // Content-based context: detect security tools (scanners, validators)
+      const effectiveContext =
+        context === 'source' && isSecurityTool(content) ? ('security-tool' as FileContext) : context;
 
-        // Skip security tools entirely — they contain detection patterns, not leaks
-        if (effectiveContext === 'security-tool') continue;
+      // Skip security tools entirely — they contain detection patterns, not
+      // leaks. Counted BEFORE this so "N files scanned" reflects files actually
+      // examined, not merely read.
+      if (effectiveContext === 'security-tool') continue;
+      scannedCount++;
 
+      {
         const lines = content.split('\n');
 
         for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
@@ -264,9 +275,6 @@ export class SecretsAnalyzer implements Analyzer {
             score -= 0.3;
           }
         }
-      } catch {
-        // File read error — counted and reported in the summary, not silent
-        readErrors++;
       }
     }
 

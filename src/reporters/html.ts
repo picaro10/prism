@@ -47,14 +47,19 @@ function scoreBar(score: number, height = 10, label = 'score'): string {
 }
 
 function verdictBadge(v: Verdict): string {
-  const pct = Math.round(Math.min(1, Math.max(0, v.confidence)) * 100);
-  const map = {
+  const pct = Math.round(Math.min(1, Math.max(0, num(v.confidence))) * 100);
+  const map: Record<string, { cls: string; label: string }> = {
     real: { cls: 'v-real', label: `✓ real (${pct}%)` },
     'false-positive': { cls: 'v-fp', label: `✗ likely FP (${pct}%)` },
     uncertain: { cls: 'v-uncertain', label: `? uncertain (${pct}%)` },
-  } as const;
-  const m = map[v.classification];
-  return `<span class="badge ${m.cls}">${escapeHtml(m.label)}</span> <span class="reasoning">${escapeHtml(v.reasoning)}</span>`;
+  };
+  // A report loaded from disk is untrusted: an unknown classification must not
+  // dereference to undefined and crash the renderer (→ dashboard 500).
+  const m = map[v.classification] ?? {
+    cls: 'v-uncertain',
+    label: `? ${escapeHtml(String(v.classification))} (${pct}%)`,
+  };
+  return `<span class="badge ${m.cls}">${escapeHtml(m.label)}</span> <span class="reasoning">${escapeHtml(String(v.reasoning ?? ''))}</span>`;
 }
 
 function renderFinding(f: Finding, verdict: Verdict | undefined, fix: Remediation | undefined): string {
@@ -67,7 +72,7 @@ function renderFinding(f: Finding, verdict: Verdict | undefined, fix: Remediatio
   if (verdict) parts.push(`<p class="verdict">${verdictBadge(verdict)}</p>`);
   if (fix) {
     parts.push(
-      `<div class="fix"><span class="fix-tag">🔧 fix · ${escapeHtml(fix.effort)} effort</span><pre>${escapeHtml(fix.fix)}</pre></div>`,
+      `<div class="fix"><span class="fix-tag">🔧 fix · ${escapeHtml(String(fix.effort ?? ''))} effort</span><pre>${escapeHtml(String(fix.fix ?? ''))}</pre></div>`,
     );
   }
   if (f.suggestion) parts.push(`<p class="suggestion">💡 ${escapeHtml(f.suggestion)}</p>`);
@@ -88,6 +93,10 @@ function renderCategory(cat: CategoryScore): string {
     ].join('');
   }
   const count = cat.findings.length;
+  // Surface a coverage gap the score alone hides (files skipped/unreadable,
+  // OSV/semgrep incomplete) so a green bar isn't misread as full coverage.
+  const gap =
+    cat.summary && COVERAGE_GAP.test(cat.summary) ? `<div class="cat-gap">⚠ ${escapeHtml(cat.summary)}</div>` : '';
   return [
     `<div class="cat-row">`,
     `<span class="cat-name">${escapeHtml(cat.category)}</span>`,
@@ -95,8 +104,12 @@ function renderCategory(cat: CategoryScore): string {
     `<span class="cat-score" style="color:${scoreColor(num(cat.score))}">${num(cat.score)}/10</span>`,
     `<span class="cat-count">${count === 0 ? 'clean' : `${count} finding${count === 1 ? '' : 's'}`}</span>`,
     '</div>',
+    gap,
   ].join('');
 }
+
+/** Phrases an analyzer uses to disclose that it could not cover everything. */
+const COVERAGE_GAP = /not scanned|not checked|unreadable|skipped|incomplete|unknown|could not/i;
 
 const STYLE = `
 :root { color-scheme: dark; }
@@ -164,16 +177,20 @@ export function formatHtmlReport(report: AuditReport): string {
   const fixByKey = new Map<string, Remediation>();
   for (const r of report.aiRemediation ?? []) fixByKey.set(r.findingKey, r);
 
+  // projectMeta is optional (older/hand-written reports may lack it) — guard
+  // every field so a missing block renders "unknown" instead of throwing.
   const m = report.projectMeta;
-  const overview: Array<[string, string]> = [
-    ['Stack', m.stack.primary + (m.stack.secondary.length ? ` + ${m.stack.secondary.join(', ')}` : '')],
-    ['Files', String(m.totalFiles)],
-    ['Package', m.packageManager ?? 'none'],
-    ['Git', m.hasGit ? 'yes' : 'no'],
-    ['Docker', m.hasDocker ? 'yes' : 'no'],
-    ['CI/CD', m.hasCi ? 'yes' : 'no'],
-  ];
-  if (m.frameworks.length > 0) overview.push(['Frameworks', m.frameworks.join(', ')]);
+  const overview: Array<[string, string]> = m
+    ? [
+        ['Stack', m.stack.primary + (m.stack.secondary.length ? ` + ${m.stack.secondary.join(', ')}` : '')],
+        ['Files', String(m.totalFiles)],
+        ['Package', m.packageManager ?? 'none'],
+        ['Git', m.hasGit ? 'yes' : 'no'],
+        ['Docker', m.hasDocker ? 'yes' : 'no'],
+        ['CI/CD', m.hasCi ? 'yes' : 'no'],
+      ]
+    : [['Project metadata', 'unavailable in this report']];
+  if (m && m.frameworks.length > 0) overview.push(['Frameworks', m.frameworks.join(', ')]);
 
   const sections: string[] = [];
 
@@ -222,12 +239,15 @@ ${items.map((f) => renderFinding(f, verdictByKey.get(findingKey(f)), fixByKey.ge
   }
 
   if (report.aiTriage) {
+    // num() every summary field: a report loaded from disk is untrusted and the
+    // schema tolerates unknown shapes, so a crafted string like
+    // `"<img src=x onerror=…>"` in a numeric slot must never reach the HTML raw.
     const s = report.aiTriage.summary;
     const fixLine = report.aiRemediation
-      ? ` · <strong>AI fixes:</strong> ${report.aiRemediation.length}/${s.real} confirmed-real findings got a fix proposal`
+      ? ` · <strong>AI fixes:</strong> ${num(report.aiRemediation.length)}/${num(s?.real)} confirmed-real findings got a fix proposal`
       : '';
     sections.push(
-      `<p class="tally"><strong>AI triage:</strong> ${s.real} real · ${s.falsePositive} false positives · ${s.uncertain} uncertain${fixLine}</p>`,
+      `<p class="tally"><strong>AI triage:</strong> ${num(s?.real)} real · ${num(s?.falsePositive)} false positives · ${num(s?.uncertain)} uncertain${fixLine}</p>`,
     );
   }
 

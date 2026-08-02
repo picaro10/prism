@@ -92,6 +92,23 @@ describe('renderCliReport', () => {
     expect(output()).toContain('No issues found');
   });
 
+  it('surfaces a category coverage gap under the score bar (not just in JSON)', () => {
+    renderCliReport(
+      baseReport({
+        categories: [
+          {
+            category: 'security',
+            score: 10,
+            maxScore: 10,
+            findings: [],
+            summary: '3 files scanned for secrets · 2 unreadable (not scanned) · No secrets detected',
+          },
+        ],
+      }),
+    );
+    expect(output()).toContain('2 unreadable (not scanned)');
+  });
+
   it('shows suppressed findings with their reasons', () => {
     renderCliReport(
       baseReport({

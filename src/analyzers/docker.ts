@@ -68,6 +68,7 @@ export class DockerAnalyzer implements Analyzer {
     }
 
     // --- Analyze each Dockerfile ---
+    let readErrors = 0;
     for (const dockerfile of dockerfiles) {
       try {
         const content = await readFile(dockerfile);
@@ -75,7 +76,7 @@ export class DockerAnalyzer implements Analyzer {
         findings.push(...dfFindings.findings);
         score += dfFindings.scoreDelta;
       } catch {
-        // Can't read — skip
+        readErrors++;
       }
     }
 
@@ -87,7 +88,7 @@ export class DockerAnalyzer implements Analyzer {
         findings.push(...dcFindings.findings);
         score += dcFindings.scoreDelta;
       } catch {
-        // Can't read — skip
+        readErrors++;
       }
     }
 
@@ -95,7 +96,7 @@ export class DockerAnalyzer implements Analyzer {
       category: 'docker',
       score: Math.max(0, Math.min(10, Math.round(score * 10) / 10)),
       findings,
-      summary: buildSummary(dockerfiles.length, composeFiles.length, findings),
+      summary: buildSummary(dockerfiles.length - readErrors, composeFiles.length, findings, readErrors),
     };
   }
 }
@@ -325,16 +326,17 @@ function analyzeCompose(file: string, content: string): { findings: Finding[]; s
   return { findings, scoreDelta };
 }
 
-function buildSummary(dockerfileCount: number, composeCount: number, findings: Finding[]): string {
+function buildSummary(dockerfileCount: number, composeCount: number, findings: Finding[], readErrors: number): string {
   const parts: string[] = [];
   parts.push(`${dockerfileCount} Dockerfile(s), ${composeCount} compose file(s) analyzed`);
+  if (readErrors > 0) parts.push(`${readErrors} unreadable (not analyzed)`);
 
   const criticals = findings.filter((f) => f.severity === 'critical').length;
   const highs = findings.filter((f) => f.severity === 'high').length;
 
-  if (findings.length === 0) {
+  if (findings.length === 0 && readErrors === 0) {
     parts.push('Docker config looks solid');
-  } else {
+  } else if (findings.length > 0) {
     if (criticals > 0) parts.push(`${criticals} critical`);
     if (highs > 0) parts.push(`${highs} high`);
     parts.push(`${findings.length} total findings`);

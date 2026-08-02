@@ -1,10 +1,29 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile, mkdir, lstat } from 'node:fs/promises';
+import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
 const PKG = '@latenciatech/prism';
 const DAY_MS = 24 * 60 * 60 * 1000;
-const CACHE_FILE = join(tmpdir(), 'prism-update-check.json');
+
+/**
+ * Cache path in a PER-USER subdirectory of the (world-writable) tmpdir. A fixed
+ * shared path let any local user pre-create it as a symlink and have PRISM
+ * overwrite the link target, or poison the file so a crafted `latest` string
+ * (with terminal escapes) got printed. The per-user dir + a symlink check on
+ * write + version-shape validation on read close that.
+ */
+function cacheDir(): string {
+  let uid = 'shared';
+  try {
+    const u = userInfo().uid;
+    if (typeof u === 'number' && u >= 0) uid = String(u);
+  } catch {
+    /* windows / no uid — fall back to a named dir */
+  }
+  return join(tmpdir(), `prism-cache-${uid}`);
+}
+const CACHE_FILE = join(cacheDir(), 'update-check.json');
+const VERSION_RE = /^v?\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/;
 
 /** Parse a dotted version into numeric components (missing parts → 0). */
 export function parseVersion(v: string): number[] {
@@ -96,6 +115,19 @@ export const defaultDeps = (): UpdateCheckDeps => ({
   now: Date.now(),
   env: process.env,
   fetchLatest: fetchLatestFromNpm,
-  readCache: async () => JSON.parse(await readFile(CACHE_FILE, 'utf-8')),
-  writeCache: async (data) => writeFile(CACHE_FILE, JSON.stringify(data), 'utf-8'),
+  readCache: async () => {
+    const parsed = JSON.parse(await readFile(CACHE_FILE, 'utf-8'));
+    // Poisoned-cache guard: only trust a well-formed version string.
+    if (parsed && typeof parsed.latest === 'string' && !VERSION_RE.test(parsed.latest)) {
+      return { lastCheck: parsed.lastCheck };
+    }
+    return parsed;
+  },
+  writeCache: async (data) => {
+    await mkdir(cacheDir(), { recursive: true, mode: 0o700 });
+    // Never follow a symlink another user may have planted at the cache path.
+    const st = await lstat(CACHE_FILE).catch(() => null);
+    if (st?.isSymbolicLink()) return;
+    await writeFile(CACHE_FILE, JSON.stringify(data), 'utf-8');
+  },
 });
