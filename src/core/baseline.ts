@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -26,7 +26,13 @@ export async function resolveBaselineReport(ref: string, targetPath: string): Pr
   let subPath = '';
   try {
     const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: targetPath });
-    subPath = relative(stdout.trim(), resolve(targetPath));
+    // realpath BOTH sides: on Windows git prints the long forward-slash path
+    // while Node may hold an 8.3 short form (RUNNER~1) — relative() between
+    // the two mismatched spellings fabricates a bogus subPath and the audit
+    // then runs over a directory that does not exist.
+    const top = await realpath(stdout.trim());
+    subPath = relative(top, await realpath(resolve(targetPath)));
+    if (subPath.startsWith('..')) subPath = ''; // outside toplevel — audit the whole worktree
   } catch {
     /* not a git repo — the worktree add below will fail with a clear message */
   }

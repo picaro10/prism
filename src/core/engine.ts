@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { scanProject } from './scanner.js';
 import { confinedReader } from '../utils/safe-read.js';
 
@@ -181,7 +182,8 @@ export async function runAudit(
   await assignFingerprints(allFindings, fileReader);
 
   // Derive project name
-  let projectName = scan.rootPath.split('/').pop() || 'unknown';
+  // basename(), not split('/') — rootPath is an OS path (backslashes on Windows).
+  let projectName = basename(scan.rootPath) || 'unknown';
   try {
     const pkgContent = await fileReader('package.json');
     const pkg = JSON.parse(pkgContent);
