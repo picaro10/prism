@@ -57,6 +57,11 @@ All notable changes to PRISM are documented here. The format is based on
   Two `none`-tier real cases join the AI benchmark so that path is measured.
 
 ### Changed
+- **New tagline, in README and the npm description**: "The auditor for
+  AI-written code, its agents, and the pipelines that ship it" — with the
+  method as subtitle (deterministic rules with their own false-positive
+  traps, and an AI judge that reads the code). "Complete" is gone: it
+  contradicted the "what it is not" block that now opens the README.
 - **README says what PRISM is and is not, and how big its evidence is.** A
   new opening states the scope (about a hundred curated deterministic checks
   plus adversarial AI triage; not a replacement for semgrep/CodeQL/Snyk), the

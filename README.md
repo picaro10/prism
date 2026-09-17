@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)
 
-**The complete auditor for AI-written code — security, quality, structure, and the pipelines that ship it.**
+**The auditor for AI-written code, its agents, and the pipelines that ship it.**
+*Deterministic rules that ship with their own false-positive traps, and an AI judge that reads the code.*
 
 > **What it is.** About a hundred curated, deterministic checks — secrets, AI-agent and CI/CD
 > risks, Docker, dependencies, tests, structure — plus an optional adversarial LLM triage layer
