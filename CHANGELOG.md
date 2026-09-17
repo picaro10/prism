@@ -6,6 +6,18 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Context tiers for AI triage.** Every rule now declares how much code its
+  triage needs (`CONTEXT_TIER` in `src/core/rule-metadata.ts`): `none` for
+  rules whose evidence is a project-level fact (god files, import cycles,
+  dependency advisories, missing tests, mixed conventions — reading the file
+  cannot change the verdict), `file` for line patterns (the default, and the
+  fallback for any unknown rule), `neighborhood` for cross-file rules
+  (agentic, taint — reserved for the upcoming import-graph context, reads the
+  file until then). `none`-tier findings are batched into content-less calls
+  of at most 25, which also bounds the previously unbounded project-level
+  group. On a real 37-finding report (25 of them god files) this cuts triage
+  from 33 calls to 8 and the file content sent from 1.2 MB to 34 KB. Remediation
+  keeps reading files: proposing a fix needs the content.
 - **File-inventory cap in the scanner.** `MAX_SCAN_FILES` (100,000) bounds the
   directory walk so a pathological or hostile tree (a monorepo with millions of
   entries, a whole disk) cannot spin the walker or hand every analyzer an

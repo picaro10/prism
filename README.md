@@ -386,7 +386,15 @@ from production code.
 - **False-positives are double-checked.** Any verdict the first pass calls `false-positive` gets
   an adversarial re-check that must confirm it with concrete code evidence — otherwise the
   finding stays `real`/`uncertain`. This catches lenient or hallucinated FPs (disable with
-  `--no-ai-verify`). Per-file calls run concurrently (`--ai-concurrency <n>`, default 5).
+  `--no-ai-verify`). Calls run concurrently (`--ai-concurrency <n>`, default 5).
+- **Context tiers: the model reads code only when code can change the verdict.** Every rule
+  declares how much context its triage needs (`CONTEXT_TIER` in `src/core/rule-metadata.ts`).
+  Line-pattern rules (secrets, Docker, workflows, test hygiene) send the flagged file.
+  Project-fact rules — god files, import cycles, dependency advisories, missing tests, mixed
+  conventions — are judged from the finding itself and batched into content-less calls: a
+  1,500-line file is big whether or not the model reads it. Cross-file rules (agentic,
+  taint) are marked `neighborhood` for the upcoming import-graph context; today they read
+  the file. Unknown rules default to the safe, expensive tier.
 - **N-model vote.** A single model makes confident judgment errors (and re-checking with the
   same model shares its blind spots). `--ai-vote model-a,model-b,model-c` makes every
   false-positive verdict face a panel: the FP survives only if the panel is **unanimous** —

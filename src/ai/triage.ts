@@ -3,8 +3,16 @@ import type { LLMClient, TriageResult, TriageUnit, Verdict, ProjectContext, Find
 import { findingKey, buildKeyMatcher, assignFindingInstances } from './types.js';
 import { tallyVerdicts } from './vote.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
+import { contextTierFor } from '../core/rule-metadata.js';
 
 const DEFAULT_CONCURRENCY = 5;
+
+/**
+ * Max findings per no-code batch. Bounds one call's size the way
+ * MAX_CONTENT_CHARS bounds a file call — 300 OSV advisories must not become
+ * one 300-item prompt the model answers with a truncated array.
+ */
+export const MAX_BATCH_FINDINGS = 25;
 
 export interface TriageOptions {
   /** Adversarially re-check false-positive verdicts before trusting them (default true). */
@@ -38,6 +46,26 @@ export function groupFindingsByFile(findings: Finding[]): Array<[string | null, 
     else byFile.set(key, [f]);
   }
   return [...byFile.entries()];
+}
+
+/**
+ * Triage units by context tier (see CONTEXT_TIER in core/rule-metadata):
+ * findings whose rule needs the code are grouped by file, exactly as before;
+ * findings whose rule is judged from a project-level fact — plus findings
+ * with no file at all — are batched into content-less units in chunks of
+ * MAX_BATCH_FINDINGS. A file that carries both kinds is split: the secret on
+ * line 3 gets the file, the god-file finding on the same path does not.
+ * `neighborhood` behaves as `file` until the neighborhood builder lands.
+ */
+export function groupFindingsForTriage(findings: Finding[]): Array<[string | null, Finding[]]> {
+  const needsCode = findings.filter((f) => f.file && contextTierFor(f.id) !== 'none');
+  const noCode = findings.filter((f) => !f.file || contextTierFor(f.id) === 'none');
+
+  const units = groupFindingsByFile(needsCode).filter(([file]) => file !== null);
+  for (let i = 0; i < noCode.length; i += MAX_BATCH_FINDINGS) {
+    units.push([null, noCode.slice(i, i + MAX_BATCH_FINDINGS)]);
+  }
+  return units;
 }
 
 /**
@@ -78,9 +106,10 @@ export async function runTriage(
   // the same instance indices flow to remediation, summary, and the reporters.
   assignFindingInstances(report.findings);
 
-  const groups = groupFindingsByFile(report.findings);
+  const groups = groupFindingsForTriage(report.findings);
 
-  // First pass: read each file and triage its findings, with bounded concurrency.
+  // First pass: read each file (when the tier needs it) and triage its
+  // findings, with bounded concurrency.
   let failedGroups = 0;
   const firstPass = await mapWithConcurrency(groups, concurrency, async ([file, findings]) => {
     let content = '';

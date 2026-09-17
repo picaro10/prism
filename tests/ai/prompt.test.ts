@@ -118,6 +118,36 @@ describe('buildUserContent', () => {
     expect(c).toMatch(/project-level|no file/i);
   });
 
+  it("a no-content unit says so and names each finding's own file so the model is not blind to where it is", () => {
+    const unit: TriageUnit = {
+      file: null,
+      content: '',
+      findings: [
+        {
+          id: 'DEP-OSV-HIGH',
+          category: 'dependencies',
+          severity: 'high',
+          title: 'adv',
+          description: 'd',
+          file: 'poetry.lock',
+        },
+        {
+          id: 'STR-011',
+          category: 'structure',
+          severity: 'medium',
+          title: 'god',
+          description: 'd',
+          file: 'src/big.ts',
+        },
+      ],
+    };
+    const c = buildUserContent(unit);
+    expect(c).toMatch(/no file content/i);
+    expect(c).toMatch(/file: poetry\.lock/);
+    expect(c).toMatch(/file: src\/big\.ts/);
+    expect(c).not.toMatch(/```/);
+  });
+
   it('truncates very large file content', () => {
     const big = 'x\n'.repeat(40000); // 80k chars > 60k MAX_CONTENT_CHARS
     const unit: TriageUnit = { file: 'big.ts', content: big, findings: [] };

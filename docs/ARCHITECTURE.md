@@ -42,7 +42,15 @@ doctrine behind the scoring — not a tour of every file.
 8. **AI triage** (opt-in, `src/ai/`) — `applyAiTriage` runs after the static
    report is fully built and never mutates it destructively: a triage
    failure is caught and logged via `onProgress`, the static report always
-   survives.
+   survives. What the model gets to read is decided per rule by its
+   **context tier** (`CONTEXT_TIER`, `src/core/rule-metadata.ts`): `none`
+   (the evidence is a project-level fact — a count, the graph, an advisory
+   database — so the finding is batched without file content), `file` (a
+   line pattern; the file is sent — and the default for any unknown rule,
+   so a new rule can only be made cheaper on purpose), `neighborhood`
+   (the verdict depends on code elsewhere; reserved for the import-graph
+   context builder, behaves as `file` until then). Remediation ignores
+   tiers on purpose: proposing a fix genuinely needs the content.
 
 ## Trust boundaries — the modules that matter most
 

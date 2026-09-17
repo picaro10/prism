@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runTriage } from '../../src/ai/triage.js';
+import { runTriage, MAX_BATCH_FINDINGS } from '../../src/ai/triage.js';
 import { findingKey } from '../../src/ai/types.js';
 import type { LLMClient, TriageUnit, Verdict, ProjectContext } from '../../src/ai/types.js';
 import type { AuditReport, Finding } from '../../src/core/types.js';
@@ -58,6 +58,19 @@ class FakeClient implements LLMClient {
 }
 
 const reader = async (p: string) => `// content of ${p}`;
+
+/** A reader that records which files were actually read. */
+function trackingReader() {
+  const read: string[] = [];
+  const fn = async (p: string) => {
+    read.push(p);
+    return `// content of ${p}`;
+  };
+  return { fn, read };
+}
+
+const realVerdicts = (u: TriageUnit): Verdict[] =>
+  u.findings.map((f) => ({ findingKey: findingKey(f), classification: 'real', confidence: 0.9, reasoning: 'r' }));
 
 describe('runTriage', () => {
   it('groups findings by file (one call per file + one for project-level)', async () => {
@@ -312,5 +325,96 @@ describe('runTriage', () => {
     expect(byKey.get(findingKey(findings[0]))?.classification).toBe('real');
     expect(byKey.get(findingKey(findings[1]))?.classification).toBe('uncertain');
     expect(result.verdicts).toHaveLength(2);
+  });
+
+  describe('context tiers', () => {
+    it('batches "none"-tier findings without reading their files, even when they name one', async () => {
+      const findings = [
+        finding({ id: 'STR-011', category: 'structure', file: 'src/big.ts' }),
+        finding({ id: 'DEP-OSV-HIGH', category: 'dependencies', file: 'requirements.txt' }),
+        finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 3 }),
+      ];
+      const client = new FakeClient(realVerdicts);
+      const r = trackingReader();
+      const result = await runTriage(report(findings), r.fn, client);
+
+      expect(client.units).toHaveLength(2);
+      const fileUnit = client.units.find((u) => u.file === 'src/a.ts')!;
+      expect(fileUnit.findings.map((f) => f.id)).toEqual(['SEC-AWS-KEY']);
+      expect(fileUnit.content).toBe('// content of src/a.ts');
+      const batch = client.units.find((u) => u.file === null)!;
+      expect(batch.findings.map((f) => f.id).sort()).toEqual(['DEP-OSV-HIGH', 'STR-011']);
+      expect(batch.content).toBe('');
+      // The god file and the lockfile were never read — that is the token saving.
+      expect(r.read).toEqual(['src/a.ts']);
+      // Every finding still gets a verdict.
+      expect(result.verdicts).toHaveLength(3);
+    });
+
+    it('splits one file across tiers: the code-judged finding gets the content, the fact-judged one is batched', async () => {
+      const findings = [
+        finding({ id: 'STR-011', category: 'structure', file: 'src/a.ts' }),
+        finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 3 }),
+      ];
+      const client = new FakeClient(realVerdicts);
+      await runTriage(report(findings), reader, client);
+      const fileUnit = client.units.find((u) => u.file === 'src/a.ts')!;
+      expect(fileUnit.findings.map((f) => f.id)).toEqual(['SEC-AWS-KEY']);
+      const batch = client.units.find((u) => u.file === null)!;
+      expect(batch.findings.map((f) => f.id)).toEqual(['STR-011']);
+    });
+
+    it('chunks the no-code batch so one giant advisory list never becomes one giant call', async () => {
+      const findings = Array.from({ length: MAX_BATCH_FINDINGS * 2 + 1 }, (_, i) =>
+        finding({ id: 'DEP-OSV-LOWER', category: 'dependencies', file: 'poetry.lock', title: `adv ${i}` }),
+      );
+      const client = new FakeClient(realVerdicts);
+      const result = await runTriage(report(findings), reader, client);
+      expect(client.units).toHaveLength(3);
+      for (const u of client.units) {
+        expect(u.file).toBeNull();
+        expect(u.findings.length).toBeLessThanOrEqual(MAX_BATCH_FINDINGS);
+      }
+      expect(result.verdicts).toHaveLength(findings.length);
+    });
+
+    it('project-level findings (no file) share the batch with none-tier findings', async () => {
+      const findings = [
+        finding({ id: 'TST-001', category: 'tests' }),
+        finding({ id: 'STR-011', category: 'structure', file: 'src/big.ts' }),
+      ];
+      const client = new FakeClient(realVerdicts);
+      await runTriage(report(findings), reader, client);
+      expect(client.units).toHaveLength(1);
+      expect(client.units[0].file).toBeNull();
+      expect(client.units[0].findings).toHaveLength(2);
+    });
+
+    it('the verify pass on a batched finding carries no content either', async () => {
+      const findings = [finding({ id: 'DEP-002', category: 'dependencies', file: 'package.json' })];
+      const client = new FakeClient((u) =>
+        u.findings.map((f) => ({
+          findingKey: findingKey(f),
+          classification: 'false-positive',
+          confidence: 0.8,
+          reasoning: 'r',
+        })),
+      );
+      await runTriage(report(findings), reader, client);
+      expect(client.verifyUnits).toHaveLength(1);
+      expect(client.verifyUnits[0].file).toBeNull();
+      expect(client.verifyUnits[0].content).toBe('');
+    });
+
+    it('neighborhood tier reads the file like "file" tier until the neighborhood builder lands', async () => {
+      const findings = [finding({ id: 'AGT-001', category: 'agentic', file: 'src/tool.ts', line: 9 })];
+      const client = new FakeClient(realVerdicts);
+      const r = trackingReader();
+      await runTriage(report(findings), r.fn, client);
+      expect(client.units).toHaveLength(1);
+      expect(client.units[0].file).toBe('src/tool.ts');
+      expect(client.units[0].content).toBe('// content of src/tool.ts');
+      expect(r.read).toEqual(['src/tool.ts']);
+    });
   });
 });

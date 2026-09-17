@@ -22,6 +22,9 @@ export function buildSystemPrompt(): string {
     'secret. Be skeptical but fair — do not call a genuine issue a false positive just because',
     'it is low severity.',
     '',
+    'Some findings arrive without file content (their rule is judged from a project-level fact);',
+    'classify those on the stated facts alone and never cite code you were not shown.',
+    '',
     'For every finding you are given, return one verdict object. Echo back the exact findingKey',
     'string you were given for that finding. Keep reasoning to one or two sentences.',
   ].join('\n');
@@ -100,7 +103,11 @@ export function buildUserContent(unit: TriageUnit, heading = 'Findings to triage
     parts.push(content);
     parts.push('```');
   } else {
-    parts.push('These are project-level findings (no specific file).');
+    parts.push(
+      'No file content is included for these findings: each is judged from its description and',
+      'metadata, because its evidence is a project-level fact (a count, the import graph, an advisory',
+      'database, a missing file), not a line of code. Do not invent code you were not shown.',
+    );
   }
 
   parts.push('');
@@ -109,6 +116,8 @@ export function buildUserContent(unit: TriageUnit, heading = 'Findings to triage
   for (const f of unit.findings) {
     parts.push(`- findingKey: ${findingKey(f)}`);
     parts.push(`  id: ${f.id} | severity: ${f.severity} | title: ${f.title}`);
+    // In a content-less batch every finding may sit on a different path; name it.
+    if (!unit.file && f.file) parts.push(`  file: ${f.file}`);
     parts.push(`  description: ${f.description}`);
     if (f.line !== undefined) {
       parts.push(`  line: ${f.line}`);
