@@ -6,6 +6,20 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Verdict cache for the AI layer.** Every final triage verdict and fix is
+  stored under a key of prompt text + judge (provider, model, panel) +
+  finding identity + hash of the content the model read, in the operator's
+  cache directory (`PRISM_CACHE_DIR` / `$XDG_CACHE_HOME/prism` /
+  `%LOCALAPPDATA%\prism\cache` / `~/.cache/prism`, one file per project —
+  never inside the audited tree). Unchanged findings on unchanged files are
+  reused instead of re-judged: the next CI push, `prism triage` on a saved
+  report, and the same run after a Ctrl-C all pay only for what changed.
+  Writes are atomic after every store (resume for free); verdicts
+  synthesized from a failed call or an abstaining panel voter are never
+  cached. Reported as `N from cache` in the tally and `[cached]` on each
+  reused verdict. `--no-ai-cache` / `ai.cache: false` opt out; clones and
+  zips never use it. `LLMClient` gains an `id` so a different model never
+  answers from another's memory.
 - **AI-triage benchmark (`npm run bench:ai`).** The static benchmark measures
   the rules; this one measures the judge. 15 cases in `benchmarks/ai/cases.ts`
   — findings the static layer really emits, each with the verdict a careful

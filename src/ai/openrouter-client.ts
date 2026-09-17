@@ -93,6 +93,7 @@ export function parseRemediations(content: string): Remediation[] {
 export class OpenRouterLLMClient implements LLMClient {
   private apiKey: string;
   private model: string;
+  readonly id: string;
 
   constructor(model = 'openai/gpt-4.1-mini') {
     const key = process.env.OPENROUTER_API_KEY;
@@ -103,6 +104,7 @@ export class OpenRouterLLMClient implements LLMClient {
     }
     this.apiKey = key;
     this.model = model;
+    this.id = `openrouter:${model}`;
   }
 
   async triage(unit: TriageUnit, projectContext: ProjectContext): Promise<Verdict[]> {

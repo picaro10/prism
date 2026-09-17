@@ -4,6 +4,7 @@ import { findingKey, buildKeyMatcher, assignFindingInstances } from './types.js'
 import { tallyVerdicts } from './vote.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { contextTierFor } from '../core/rule-metadata.js';
+import { cacheKey, judgeId, type VerdictCache } from './cache.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -25,6 +26,12 @@ export interface TriageOptions {
    * Defaults to the triage client alone — the single-verifier behavior.
    */
   verifiers?: LLMClient[];
+  /**
+   * Verdict cache (see ./cache.ts). When set, findings whose final verdict is
+   * already known for this judge + prompt + content are not sent again, and
+   * every fresh final verdict is stored. Unset = every finding is judged.
+   */
+  cache?: VerdictCache;
 }
 
 export function buildProjectContext(report: AuditReport): ProjectContext {
@@ -74,21 +81,50 @@ export function groupFindingsForTriage(findings: Finding[]): Array<[string | nul
  * for any finding the model skipped.
  */
 function alignVerdicts(findings: Finding[], returned: Verdict[]): Verdict[] {
+  return alignVerdictsDetailed(findings, returned).verdicts;
+}
+
+/**
+ * alignVerdicts plus the set of finding keys the model ACTUALLY answered.
+ * A synthesized `uncertain` (skipped finding, failed call) is not a judgment
+ * and must never be cached as one.
+ */
+function alignVerdictsDetailed(
+  findings: Finding[],
+  returned: Verdict[],
+): { verdicts: Verdict[]; answered: Set<string> } {
   const matchKey = buildKeyMatcher(findings);
   const byKey = new Map<string, Verdict>();
   for (const v of returned) {
     const canonical = matchKey(v.findingKey);
     if (canonical) byKey.set(canonical, { ...v, findingKey: canonical });
   }
-  return findings.map(
-    (f) =>
-      byKey.get(findingKey(f)) ?? {
-        findingKey: findingKey(f),
-        classification: 'uncertain',
-        confidence: 0,
-        reasoning: 'no verdict returned',
-      },
-  );
+  const answered = new Set<string>();
+  const verdicts = findings.map((f) => {
+    const key = findingKey(f);
+    const v = byKey.get(key);
+    if (v) {
+      answered.add(key);
+      return v;
+    }
+    return { findingKey: key, classification: 'uncertain' as const, confidence: 0, reasoning: 'no verdict returned' };
+  });
+  return { verdicts, answered };
+}
+
+const CLASSIFICATIONS = new Set(['real', 'false-positive', 'uncertain']);
+
+/** A cached value is trusted only if it still looks like a verdict (the file is the operator's, but it can rot). */
+function asVerdict(value: unknown, key: string): Verdict | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Partial<Verdict>;
+  if (!CLASSIFICATIONS.has(String(v.classification)) || typeof v.reasoning !== 'string') return undefined;
+  return {
+    findingKey: key,
+    classification: v.classification as Verdict['classification'],
+    confidence: typeof v.confidence === 'number' ? v.confidence : 0,
+    reasoning: `${v.reasoning} [cached]`,
+  };
 }
 
 export async function runTriage(
@@ -108,8 +144,19 @@ export async function runTriage(
 
   const groups = groupFindingsForTriage(report.findings);
 
-  // First pass: read each file (when the tier needs it) and triage its
-  // findings, with bounded concurrency.
+  const cache = options.cache;
+  const verifiers = options.verifiers?.length ? options.verifiers : [client];
+  const judge = judgeId(
+    client.id,
+    verifiers.map((v) => v.id),
+  );
+  const keyOf = (f: Finding, content: string) => cacheKey({ kind: 'triage', judge, content, finding: f });
+  let cachedCount = 0;
+
+  // First pass: read each file (when the tier needs it), reuse every verdict
+  // the cache already holds for this judge + content, and triage the rest
+  // with bounded concurrency.
+  let attemptedGroups = 0;
   let failedGroups = 0;
   const firstPass = await mapWithConcurrency(groups, concurrency, async ([file, findings]) => {
     let content = '';
@@ -121,22 +168,53 @@ export async function runTriage(
       }
     }
     const unit: TriageUnit = { file, content, findings };
+
+    const cached: Verdict[] = [];
+    const pending: Finding[] = [];
+    const keys = new Map<string, string>(); // findingKey → cache key
+    for (const f of findings) {
+      const fk = findingKey(f);
+      if (cache) {
+        const ck = keyOf(f, content);
+        keys.set(fk, ck);
+        const hit = asVerdict(cache.get(ck), fk);
+        if (hit) {
+          cached.push(hit);
+          continue;
+        }
+      }
+      pending.push(f);
+    }
+    cachedCount += cached.length;
+    if (pending.length === 0) return { unit, verdicts: cached, answered: new Set<string>(), keys };
+
+    attemptedGroups++;
     try {
-      const returned = await client.triage(unit, ctx);
-      return { unit, verdicts: alignVerdicts(findings, returned) };
+      const returned = await client.triage({ file, content, findings: pending }, ctx);
+      const { verdicts: fresh, answered } = alignVerdictsDetailed(pending, returned);
+      // real / uncertain are final now (only false-positives face the verify pass).
+      if (cache) {
+        for (const v of fresh) {
+          if (answered.has(v.findingKey) && v.classification !== 'false-positive') {
+            cache.put(keys.get(v.findingKey) as string, v);
+          }
+        }
+      }
+      return { unit, verdicts: [...cached, ...fresh], answered, keys };
     } catch {
       // A failed triage call for one group (rate limit, 500, timeout) must not
       // kill the whole pass and discard every already-computed verdict. Synthesize
       // `uncertain` for this group; the rest survive. Mirrors the verify pass.
       failedGroups++;
-      return { unit, verdicts: alignVerdicts(findings, []) };
+      return { unit, verdicts: [...cached, ...alignVerdicts(pending, [])], answered: new Set<string>(), keys };
     }
   });
 
-  // If EVERY group failed (no key, no network, invalid provider), triage didn't
-  // really run — throw so the caller drops the AI overlay entirely rather than
-  // attaching a report of meaningless "uncertain" verdicts.
-  if (groups.length > 0 && failedGroups === groups.length) {
+  // If EVERY attempted group failed (no key, no network, invalid provider),
+  // triage didn't really run — throw so the caller drops the AI overlay
+  // entirely rather than attaching a report of meaningless "uncertain"
+  // verdicts. Groups served entirely from cache are not attempts.
+  if (attemptedGroups > 0 && failedGroups === attemptedGroups) {
     throw new Error('AI triage failed for every file group');
   }
 
@@ -145,20 +223,24 @@ export async function runTriage(
   // Second pass: adversarially re-check every finding the first pass called a
   // false-positive. An FP survives only if the skeptical re-check also confirms
   // it; otherwise we trust the skeptical verdict (real/uncertain). Catches a
-  // lenient or hallucinated FP from the first pass.
+  // lenient or hallucinated FP from the first pass. Cached FPs were stored
+  // AFTER their own verify pass, so only fresh ones are re-checked.
   if (verifyEnabled) {
     const verdictByKey = new Map(verdicts.map((v) => [v.findingKey, v]));
     const fpGroups = firstPass
       .map((p) => ({
         unit: p.unit,
-        findings: p.unit.findings.filter((f) => verdictByKey.get(findingKey(f))?.classification === 'false-positive'),
+        keys: p.keys,
+        findings: p.unit.findings.filter(
+          (f) => p.answered.has(findingKey(f)) && verdictByKey.get(findingKey(f))?.classification === 'false-positive',
+        ),
       }))
       .filter((g) => g.findings.length > 0);
 
     if (fpGroups.length > 0) {
-      const verifiers = options.verifiers?.length ? options.verifiers : [client];
       const verifyResults = await mapWithConcurrency(fpGroups, concurrency, async (g) => {
         const unit: TriageUnit = { file: g.unit.file, content: g.unit.content, findings: g.findings };
+        let voterFailed = false;
         const perVoter = await Promise.all(
           verifiers.map(async (voter) => {
             try {
@@ -167,18 +249,25 @@ export async function runTriage(
               // A failed voter abstains: alignVerdicts on [] synthesizes
               // `uncertain` for every finding, so the rest of the panel
               // still decides instead of the whole triage dying.
+              voterFailed = true;
               return alignVerdicts(g.findings, []);
             }
           }),
         );
-        return tallyVerdicts(perVoter);
+        const tallied = tallyVerdicts(perVoter);
+        // A panel decision reached with an abstaining (errored) voter is not
+        // frozen: the next run gets to ask again.
+        if (cache && !voterFailed) {
+          for (const v of tallied) cache.put(g.keys.get(v.findingKey) as string, v);
+        }
+        return tallied;
       });
 
       const verifyByKey = new Map<string, Verdict>();
       for (const arr of verifyResults) for (const v of arr) verifyByKey.set(v.findingKey, v);
 
       verdicts = verdicts.map((v) => {
-        if (v.classification !== 'false-positive') return v;
+        if (v.classification !== 'false-positive' || v.reasoning.endsWith('[cached]')) return v;
         const vr = verifyByKey.get(v.findingKey);
         if (!vr) {
           return { ...v, classification: 'uncertain', reasoning: `${v.reasoning} (unverified)` };
@@ -186,12 +275,22 @@ export async function runTriage(
         return vr; // confirmed FP, or downgraded to real/uncertain by the skeptical pass
       });
     }
+  } else if (cache) {
+    // No verify pass: the first-pass FP IS the final verdict — store it.
+    for (const p of firstPass) {
+      for (const v of p.verdicts) {
+        if (p.answered.has(v.findingKey) && v.classification === 'false-positive') {
+          cache.put(p.keys.get(v.findingKey) as string, v);
+        }
+      }
+    }
   }
 
   const summary = {
     real: verdicts.filter((v) => v.classification === 'real').length,
     falsePositive: verdicts.filter((v) => v.classification === 'false-positive').length,
     uncertain: verdicts.filter((v) => v.classification === 'uncertain').length,
+    ...(cache ? { cached: cachedCount } : {}),
   };
 
   return { verdicts, summary };

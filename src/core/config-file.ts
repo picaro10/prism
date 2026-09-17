@@ -61,6 +61,7 @@ const fileConfigSchema = z
         summary: z.boolean().optional(),
         concurrency: z.number().int().min(1).optional(),
         vote: z.array(z.string().min(1)).min(1).optional(),
+        cache: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -122,6 +123,7 @@ export interface EffectiveOptions {
   aiRemediate: boolean;
   aiConcurrency?: number;
   aiVoteModels?: string[];
+  aiCache: boolean;
   suppressions: Suppression[];
 }
 
@@ -226,6 +228,7 @@ export function resolveEffectiveOptions(
       file?.ai?.concurrency,
     ),
     aiVoteModels: pickOpt('aiVote', cliVote, file?.ai?.vote),
+    aiCache: pick('aiCache', cli.aiCache as boolean | undefined, file?.ai?.cache, true),
     suppressions: file?.suppressions ?? [],
   };
 }

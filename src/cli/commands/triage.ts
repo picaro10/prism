@@ -21,6 +21,7 @@ export function registerTriageCommand(program: Command): void {
     .option('--no-ai-summary', 'Skip the AI executive summary')
     .option('--no-ai-remediate', 'Skip the AI fix proposals for confirmed-real findings')
     .option('--ai-concurrency <n>', 'Max concurrent triage calls (default 5)')
+    .option('--no-ai-cache', 'Judge every finding again instead of reusing cached verdicts for unchanged code')
     .option('--dry-run', 'Re-triage with canned responses — no network, no API key (demos/tests)', false)
     .option(
       '--root <path>',
@@ -85,6 +86,7 @@ export function registerTriageCommand(program: Command): void {
         | 'aiConcurrency'
         | 'aiVoteModels'
         | 'aiDryRun'
+        | 'aiCache'
       > = {
         aiModel: options.aiModel ? String(options.aiModel) : undefined,
         aiProvider: options.aiProvider ? (String(options.aiProvider) as PrismConfig['aiProvider']) : undefined,
@@ -94,6 +96,7 @@ export function registerTriageCommand(program: Command): void {
         aiRemediate: options.aiRemediate !== false,
         aiDryRun: Boolean(options.dryRun),
         aiConcurrency: triageConcurrency,
+        aiCache: options.aiCache !== false,
       };
 
       console.log('');
@@ -103,10 +106,17 @@ export function registerTriageCommand(program: Command): void {
 
       const spinner = ora({ text: 'Running AI triage...', prefixText: '  ' }).start();
       let aiMessage: string | undefined;
-      await applyAiTriage(report, reader, aiConfig, (msg) => {
-        if (msg.startsWith('AI triage')) aiMessage = msg;
-        spinner.text = msg;
-      });
+      await applyAiTriage(
+        report,
+        reader,
+        aiConfig,
+        (msg) => {
+          if (msg.startsWith('AI triage')) aiMessage = msg;
+          spinner.text = msg;
+        },
+        undefined,
+        rootCheck.root,
+      );
 
       if (!report.aiTriage) {
         spinner.fail(chalk.red(aiMessage ?? 'AI triage did not run.'));

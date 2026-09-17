@@ -163,6 +163,14 @@ describe('resolveEffectiveOptions', () => {
     const eff = resolveEffectiveOptions(f, { aiVerify: false }, (n) => n === 'aiVerify');
     expect(eff.aiVerify).toBe(false);
   });
+
+  it('ai.cache defaults to true, follows the file, and --no-ai-cache wins', () => {
+    expect(resolveEffectiveOptions(null, {}, () => false).aiCache).toBe(true);
+    expect(resolveEffectiveOptions({ ai: { cache: false } }, {}, () => false).aiCache).toBe(false);
+    expect(resolveEffectiveOptions({ ai: { cache: true } }, { aiCache: false }, (n) => n === 'aiCache').aiCache).toBe(
+      false,
+    );
+  });
 });
 
 describe('validateEffectiveOptions', () => {

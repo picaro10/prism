@@ -253,7 +253,10 @@ export async function runAudit(
 
   // Phase 6: AI triage (opt-in). Must never destroy the static report.
   if (config.ai) {
-    await applyAiTriage(report, fileReader, config, onProgress, injectedClient);
+    // The verdict cache is keyed by the project root; an injected client
+    // (tests) gets none, so fakes never leave files in the operator's cache.
+    const cacheRoot = injectedClient ? undefined : config.targetPath;
+    await applyAiTriage(report, fileReader, config, onProgress, injectedClient, cacheRoot);
   }
 
   return report;

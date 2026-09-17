@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { VerdictCache } from '../../src/ai/cache.js';
 import { runRemediation, selectRealFindings } from '../../src/ai/remediate.js';
 import { findingKey } from '../../src/ai/types.js';
 import type { LLMClient, TriageUnit, Verdict, Remediation, ProjectContext, TriageResult } from '../../src/ai/types.js';
@@ -215,5 +219,22 @@ describe('runRemediation', () => {
     );
     expect(client.remediateUnits[0].content).toBe('');
     expect(fixes).toHaveLength(1);
+  });
+
+  it('reuses a cached fix for unchanged content and stores fresh ones', async () => {
+    const cache = new VerdictCache(join(mkdtempSync(join(tmpdir(), 'prism-rem-cache-')), 'v.json'));
+    const findings = [finding({ id: 'A', file: 'src/a.ts', line: 1 })];
+    const r = report(
+      findings,
+      triageOf(findings, () => 'real'),
+    );
+    const c1 = new FakeClient(fixAll);
+    const fixes1 = await runRemediation(r, reader, c1, { cache });
+    expect(fixes1).toHaveLength(1);
+    expect(c1.remediateUnits).toHaveLength(1);
+    const c2 = new FakeClient(fixAll);
+    const fixes2 = await runRemediation(r, reader, c2, { cache });
+    expect(c2.remediateUnits).toHaveLength(0);
+    expect(fixes2).toEqual(fixes1);
   });
 });

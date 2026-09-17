@@ -8,6 +8,7 @@ import { findingKey } from './types.js';
  * marked clearly as canned so a dry-run report is never mistaken for a real one.
  */
 export class DryRunLLMClient implements LLMClient {
+  readonly id = 'dry-run';
   async triage(unit: TriageUnit, _ctx: ProjectContext): Promise<Verdict[]> {
     return unit.findings.map((f) => ({
       findingKey: findingKey(f),

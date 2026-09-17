@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { applyAiTriage } from '../../src/ai/run.js';
 import { findingKey } from '../../src/ai/types.js';
 import type { LLMClient, TriageUnit, Verdict, Remediation, ProjectContext } from '../../src/ai/types.js';
@@ -106,5 +109,52 @@ describe('applyAiTriage', () => {
     expect(r.aiRemediation).toBeUndefined();
     expect(r.aiSummary).toBeUndefined();
     expect(messages.some((m) => m.startsWith('AI triage failed'))).toBe(true);
+  });
+
+  describe('verdict cache wiring', () => {
+    const withCacheDir = async (fn: () => Promise<void>) => {
+      const prev = process.env.PRISM_CACHE_DIR;
+      process.env.PRISM_CACHE_DIR = mkdtempSync(join(tmpdir(), 'prism-run-cache-'));
+      try {
+        await fn();
+      } finally {
+        // biome-ignore lint/performance/noDelete: unsetting an env var needs delete — assigning undefined stores the string "undefined"
+        if (prev === undefined) delete process.env.PRISM_CACHE_DIR;
+        else process.env.PRISM_CACHE_DIR = prev;
+      }
+    };
+
+    it('reuses verdicts and fixes across runs when a cacheRoot is given', () =>
+      withCacheDir(async () => {
+        const root = mkdtempSync(join(tmpdir(), 'prism-run-root-'));
+        const r1 = report([finding]);
+        await applyAiTriage(r1, reader, {}, undefined, new Fake(), root);
+        expect(r1.aiTriage?.summary.cached).toBe(0);
+
+        const r2 = report([finding]);
+        const second = new Fake();
+        const messages: string[] = [];
+        await applyAiTriage(r2, reader, {}, (m) => messages.push(m), second, root);
+        expect(r2.aiTriage?.summary.cached).toBe(1);
+        expect(second.remediateCalls).toBe(0);
+        expect(r2.aiRemediation).toHaveLength(1);
+        expect(messages).toContain('AI triage complete (1 from cache)');
+      }));
+
+    it('does not cache without a cacheRoot, with aiCache=false, or on a dry run', () =>
+      withCacheDir(async () => {
+        const root = mkdtempSync(join(tmpdir(), 'prism-run-root-'));
+        const r1 = report([finding]);
+        await applyAiTriage(r1, reader, {}, undefined, new Fake());
+        expect(r1.aiTriage?.summary.cached).toBeUndefined();
+
+        const r2 = report([finding]);
+        await applyAiTriage(r2, reader, { aiCache: false }, undefined, new Fake(), root);
+        expect(r2.aiTriage?.summary.cached).toBeUndefined();
+
+        const r3 = report([finding]);
+        await applyAiTriage(r3, reader, { aiDryRun: true }, undefined, new Fake(), root);
+        expect(r3.aiTriage?.summary.cached).toBeUndefined();
+      }));
   });
 });

@@ -3,6 +3,10 @@ import { runTriage, MAX_BATCH_FINDINGS } from '../../src/ai/triage.js';
 import { findingKey } from '../../src/ai/types.js';
 import type { LLMClient, TriageUnit, Verdict, ProjectContext } from '../../src/ai/types.js';
 import type { AuditReport, Finding } from '../../src/core/types.js';
+import { VerdictCache } from '../../src/ai/cache.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function finding(p: Partial<Finding>): Finding {
   return { id: 'X', category: 'security', severity: 'high', title: 't', description: 'd', ...p };
@@ -415,6 +419,130 @@ describe('runTriage', () => {
       expect(client.units[0].file).toBe('src/tool.ts');
       expect(client.units[0].content).toBe('// content of src/tool.ts');
       expect(r.read).toEqual(['src/tool.ts']);
+    });
+  });
+
+  describe('verdict cache', () => {
+    const freshCache = () => new VerdictCache(join(mkdtempSync(join(tmpdir(), 'prism-triage-cache-')), 'v.json'));
+
+    it('reuses a final verdict for unchanged content and skips the call (and counts it)', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      const c1 = new FakeClient(realVerdicts);
+      const r1 = await runTriage(report(findings), reader, c1, { cache });
+      expect(c1.units).toHaveLength(1);
+      expect(r1.summary.cached).toBe(0);
+
+      const c2 = new FakeClient(realVerdicts);
+      const r2 = await runTriage(report(findings), reader, c2, { cache });
+      expect(c2.units).toHaveLength(0); // no call at all
+      expect(r2.summary).toEqual({ real: 1, falsePositive: 0, uncertain: 0, cached: 1 });
+      expect(r2.verdicts[0].reasoning).toMatch(/\[cached\]$/);
+    });
+
+    it('misses when the file content changed', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      await runTriage(report(findings), reader, new FakeClient(realVerdicts), { cache });
+      const c2 = new FakeClient(realVerdicts);
+      await runTriage(report(findings), async (p) => `// edited ${p}`, c2, { cache });
+      expect(c2.units).toHaveLength(1);
+    });
+
+    it('misses when the judge (client id) differs', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      const a = new FakeClient(realVerdicts);
+      (a as unknown as { id: string }).id = 'fake:a';
+      await runTriage(report(findings), reader, a, { cache });
+      const b = new FakeClient(realVerdicts);
+      (b as unknown as { id: string }).id = 'fake:b';
+      await runTriage(report(findings), reader, b, { cache });
+      expect(b.units).toHaveLength(1);
+    });
+
+    it('stores a false-positive only AFTER the verify pass, as the final verdict', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      const fp = (u: TriageUnit): Verdict[] =>
+        u.findings.map((f) => ({
+          findingKey: findingKey(f),
+          classification: 'false-positive',
+          confidence: 0.8,
+          reasoning: 'fp',
+        }));
+      // First pass says FP, the skeptical pass says real → final is real, and that is what gets cached.
+      const c1 = new FakeClient(fp, realVerdicts);
+      const r1 = await runTriage(report(findings), reader, c1, { cache });
+      expect(r1.verdicts[0].classification).toBe('real');
+      const c2 = new FakeClient(fp, realVerdicts);
+      const r2 = await runTriage(report(findings), reader, c2, { cache });
+      expect(c2.units).toHaveLength(0);
+      expect(c2.verifyUnits).toHaveLength(0);
+      expect(r2.verdicts[0].classification).toBe('real');
+    });
+
+    it('does not cache a verdict synthesized from a failed call or a skipped finding', async () => {
+      const cache = freshCache();
+      const findings = [
+        finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 }),
+        finding({ id: 'SEC-GH-PAT', file: 'src/b.ts', line: 1 }),
+      ];
+      // a.ts: the call throws; b.ts: the model answers nothing.
+      const flaky = new FakeClient((u) => {
+        if (u.file === 'src/a.ts') throw new Error('500');
+        return [];
+      });
+      const r1 = await runTriage(report(findings), reader, flaky, { cache });
+      expect(r1.verdicts.every((v) => v.classification === 'uncertain')).toBe(true);
+      const c2 = new FakeClient(realVerdicts);
+      await runTriage(report(findings), reader, c2, { cache });
+      expect(c2.units).toHaveLength(2); // both judged again
+    });
+
+    it('does not freeze a panel decision reached with an abstaining (errored) voter', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      const fp = (u: TriageUnit): Verdict[] =>
+        u.findings.map((f) => ({
+          findingKey: findingKey(f),
+          classification: 'false-positive',
+          confidence: 0.8,
+          reasoning: 'fp',
+        }));
+      const dead: LLMClient = {
+        triage: async () => [],
+        verify: async () => {
+          throw new Error('down');
+        },
+        summarize: async () => '',
+        remediate: async () => [],
+      };
+      const c1 = new FakeClient(fp, fp);
+      const r1 = await runTriage(report(findings), reader, c1, { cache, verifiers: [c1, dead] });
+      expect(r1.verdicts[0].classification).toBe('uncertain'); // not unanimous
+      const c2 = new FakeClient(fp, fp);
+      await runTriage(report(findings), reader, c2, { cache, verifiers: [c2, dead] });
+      expect(c2.units).toHaveLength(1); // judged again, not served from cache
+    });
+
+    it('a run served entirely from cache is not "failed for every group"', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      await runTriage(report(findings), reader, new FakeClient(realVerdicts), { cache });
+      const broken = new FakeClient(() => {
+        throw new Error('no network');
+      });
+      await expect(runTriage(report(findings), reader, broken, { cache })).resolves.toBeDefined();
+    });
+
+    it('without a cache option the summary has no cached count (pre-cache shape)', async () => {
+      const r = await runTriage(
+        report([finding({ id: 'A', file: 'src/a.ts', line: 1 })]),
+        reader,
+        new FakeClient(realVerdicts),
+      );
+      expect(r.summary).toEqual({ real: 1, falsePositive: 0, uncertain: 0 });
     });
   });
 });

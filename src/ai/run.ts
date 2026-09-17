@@ -1,12 +1,21 @@
 import type { AuditReport, FileReader, PrismConfig } from '../core/types.js';
 import type { LLMClient } from './types.js';
+import type { VerdictCache } from './cache.js';
 import { runTriage } from './triage.js';
 import { runRemediation } from './remediate.js';
 import { runSummary } from './summarize.js';
 
 type AiConfig = Pick<
   PrismConfig,
-  'aiModel' | 'aiProvider' | 'aiVerify' | 'aiSummary' | 'aiRemediate' | 'aiConcurrency' | 'aiVoteModels' | 'aiDryRun'
+  | 'aiModel'
+  | 'aiProvider'
+  | 'aiVerify'
+  | 'aiSummary'
+  | 'aiRemediate'
+  | 'aiConcurrency'
+  | 'aiVoteModels'
+  | 'aiDryRun'
+  | 'aiCache'
 >;
 
 /**
@@ -15,6 +24,10 @@ type AiConfig = Pick<
  * `report.aiSummary`. Shared by the engine's `--ai` path and the standalone
  * `triage` command. Any failure is swallowed (reported via onProgress) so the
  * static report always survives.
+ *
+ * `cacheRoot` is the project the verdicts belong to; when given (and
+ * `aiCache` is not false, and this is not a dry run) verdicts and fixes are
+ * reused from / stored in the operator's cache for that project.
  */
 export async function applyAiTriage(
   report: AuditReport,
@@ -22,8 +35,15 @@ export async function applyAiTriage(
   config: AiConfig,
   onProgress?: (message: string) => void,
   injectedClient?: LLMClient,
+  cacheRoot?: string,
 ): Promise<void> {
   try {
+    let cache: VerdictCache | undefined;
+    if (cacheRoot && config.aiCache !== false && !config.aiDryRun) {
+      const { VerdictCache: Cache } = await import('./cache.js');
+      cache = Cache.forProject(cacheRoot);
+    }
+
     let client = injectedClient;
     let verifiers: LLMClient[] | undefined;
     if (!client && config.aiDryRun) {
@@ -47,13 +67,16 @@ export async function applyAiTriage(
       verify: config.aiVerify,
       concurrency: config.aiConcurrency,
       verifiers,
+      cache,
     });
-    onProgress?.('AI triage complete');
+    const cachedNote = report.aiTriage.summary.cached ? ` (${report.aiTriage.summary.cached} from cache)` : '';
+    onProgress?.(`AI triage complete${cachedNote}`);
 
     if (config.aiRemediate !== false) {
       onProgress?.('Proposing fixes for confirmed findings...');
       report.aiRemediation = await runRemediation(report, readFile, client, {
         concurrency: config.aiConcurrency,
+        cache,
       });
     }
 

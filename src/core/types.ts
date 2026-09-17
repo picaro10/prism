@@ -257,6 +257,11 @@ export interface PrismConfig {
   aiRemediate?: boolean;
   /** Use canned AI responses instead of a real provider — no network, no API key. */
   aiDryRun?: boolean;
+  /**
+   * Reuse verdicts/fixes from the operator's cache for unchanged findings and
+   * store fresh ones (default true; false = judge everything again).
+   */
+  aiCache?: boolean;
   /** Justified suppressions (from prism.config.json) applied before scoring/gates/AI. */
   suppressions?: Suppression[];
 }

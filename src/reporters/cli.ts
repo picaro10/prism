@@ -77,7 +77,7 @@ export function renderCliReport(report: AuditReport): void {
     console.log(
       `  ${chalk.bold('AI triage:')} ${chalk.green(`${s.real} real`)} · ${chalk.dim(
         `${s.falsePositive} false positives`,
-      )} · ${chalk.yellow(`${s.uncertain} uncertain`)}`,
+      )} · ${chalk.yellow(`${s.uncertain} uncertain`)}${s.cached ? chalk.dim(` · ${s.cached} from cache`) : ''}`,
     );
     if (report.aiRemediation) {
       const coverage = `${report.aiRemediation.length}/${s.real}`;

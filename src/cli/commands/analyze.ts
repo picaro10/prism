@@ -41,6 +41,7 @@ export function registerAnalyzeCommand(program: Command): void {
     .option('--no-ai-summary', 'Skip the AI executive summary')
     .option('--no-ai-remediate', 'Skip the AI fix proposals for confirmed-real findings')
     .option('--ai-concurrency <n>', 'Max concurrent triage calls (default 5)')
+    .option('--no-ai-cache', 'Judge every finding again instead of reusing cached verdicts for unchanged code')
     .option('--dry-run', 'Run the AI layer with canned responses — no network, no API key (demos/tests)', false)
     .option('--junit <path>', 'Also write a JUnit XML report (findings as failed test cases) for CI')
     .option('--sarif <path>', 'Also write a SARIF 2.1.0 report (for GitHub Code Scanning, VS Code, etc.)')
@@ -166,6 +167,9 @@ export function registerAnalyzeCommand(program: Command): void {
         aiSummary: eff.aiSummary,
         aiRemediate: eff.aiRemediate,
         aiConcurrency: eff.aiConcurrency,
+        // A clone or an extracted zip is a throwaway directory: verdicts keyed
+        // by its path would never be reused, so only local targets get the cache.
+        aiCache: eff.aiCache && resolved.source === 'local',
         suppressions: eff.suppressions,
       };
 

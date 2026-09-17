@@ -29,6 +29,7 @@ const RemediationArraySchema = z.object({ remediations: z.array(RemediationSchem
 export class AnthropicLLMClient implements LLMClient {
   private client: Anthropic;
   private model: string;
+  readonly id: string;
 
   constructor(model = 'claude-opus-4-8') {
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -36,6 +37,7 @@ export class AnthropicLLMClient implements LLMClient {
     }
     this.client = new Anthropic();
     this.model = model;
+    this.id = `anthropic:${model}`;
   }
 
   triage(unit: TriageUnit, projectContext: ProjectContext): Promise<Verdict[]> {

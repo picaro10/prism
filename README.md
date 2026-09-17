@@ -387,6 +387,17 @@ from production code.
   an adversarial re-check that must confirm it with concrete code evidence — otherwise the
   finding stays `real`/`uncertain`. This catches lenient or hallucinated FPs (disable with
   `--no-ai-verify`). Calls run concurrently (`--ai-concurrency <n>`, default 5).
+- **Verdict cache: unchanged code is never judged twice.** Every final verdict and fix is
+  stored under a key made of the prompts, the judge (provider, model, panel), the finding and a
+  hash of the exact content the model read. The next run — the next CI push, `prism triage` on
+  a saved report, or the same run after a Ctrl-C — reuses what it already knows and only pays
+  for what changed (`AI triage: … · 12 from cache`, and cached verdicts are tagged `[cached]`).
+  Editing a prompt, switching models or touching the file all miss on purpose; verdicts
+  synthesized from a failed call are never stored. The cache lives in the **operator's** cache
+  directory (`PRISM_CACHE_DIR`, else `$XDG_CACHE_HOME/prism`, `%LOCALAPPDATA%\prism\cache`, or
+  `~/.cache/prism`), never inside the audited project, and only for local targets — a clone or
+  zip is a throwaway directory. `--no-ai-cache` (or `ai.cache: false` in the config) judges
+  everything again. Cache `~/.cache/prism` in CI to keep the saving across runs.
 - **Context tiers: the model reads code only when code can change the verdict.** Every rule
   declares how much context its triage needs (`CONTEXT_TIER` in `src/core/rule-metadata.ts`).
   Line-pattern rules (secrets, Docker, workflows, test hygiene) send the flagged file.

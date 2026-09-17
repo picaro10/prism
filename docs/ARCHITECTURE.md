@@ -51,6 +51,14 @@ doctrine behind the scoring — not a tour of every file.
    (the verdict depends on code elsewhere; reserved for the import-graph
    context builder, behaves as `file` until then). Remediation ignores
    tiers on purpose: proposing a fix genuinely needs the content.
+   Final verdicts and fixes go through the **verdict cache**
+   (`src/ai/cache.ts`): keyed by prompt text, judge identity, finding
+   identity and a hash of the content sent, stored in the operator's cache
+   dir (never in the audited tree — a hostile repo cannot plant entries),
+   written atomically after every store so an interrupted run resumes for
+   free. Synthesized verdicts (failed call, skipped finding, abstaining
+   panel voter) are never cached — a transient failure must not freeze into
+   a judgment.
 
 ## Trust boundaries — the modules that matter most
 

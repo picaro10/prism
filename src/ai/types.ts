@@ -14,7 +14,8 @@ export interface Verdict {
 
 export interface TriageResult {
   verdicts: Verdict[];
-  summary: { real: number; falsePositive: number; uncertain: number };
+  /** `cached` is present only when a verdict cache was in play: verdicts reused from an earlier run. */
+  summary: { real: number; falsePositive: number; uncertain: number; cached?: number };
 }
 
 export type RemediationEffort = 'low' | 'medium' | 'high';
@@ -48,6 +49,12 @@ export interface ProjectContext {
 
 /** Injectable seam. Real impl calls Claude; tests inject a fake. */
 export interface LLMClient {
+  /**
+   * Stable identity of the judge — provider and model — folded into verdict
+   * cache keys so a different model never answers from another's memory.
+   * Clients without one are cached under 'unknown' (tests, ad-hoc fakes).
+   */
+  readonly id?: string;
   triage(unit: TriageUnit, projectContext: ProjectContext): Promise<Verdict[]>;
   /**
    * Adversarial re-check of findings a first pass flagged as false-positive.
