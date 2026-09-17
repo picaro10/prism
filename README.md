@@ -571,7 +571,9 @@ Credibility is the primary design constraint. Every analyzer decision is checked
 - Projects with `totalLoc = 0` (no source files) return `tests: N/A` rather than a critical finding.
 - The import graph used for circular-dependency detection (`STR-012`) only counts value imports; `import type` statements that vanish at compile time are excluded from cycle detection.
 
-The false-positive rate has been tracked across five real projects. As of v0.9.0 the measured credibility on `orion_new` (1,000+ files) is approximately 96%.
+Every one of these started as a wrong finding on a real project. Each is now a trap in the
+[false-positive benchmark](#false-positive-benchmark) (n = 28 cases, half of them traps), which
+fails CI if the rule ever fires again — that, not a percentage, is the false-positive claim.
 
 ---
 
@@ -585,7 +587,7 @@ npm run test:watch     # vitest watch mode
 npm run test:coverage  # with coverage report
 ```
 
-The test suite has 700+ tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
+A large regression suite covers every analyzer, the utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI layer (with an injected fake client — the suite never hits the network), the benchmark corpora, and end-to-end CLI scenarios on Linux, macOS and Windows.
 
 ### Lint
 
