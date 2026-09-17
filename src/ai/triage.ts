@@ -156,6 +156,7 @@ export async function runTriage(
   const judge = judgeId(
     client.id,
     verifiers.map((v) => v.id),
+    { verify: verifyEnabled },
   );
   const keyOf = (f: Finding, content: string) => cacheKey({ kind: 'triage', judge, content, finding: f });
   let cachedCount = 0;

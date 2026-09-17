@@ -2,7 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { VerdictCache, cacheKey, judgeId, cacheBaseDir, MAX_CACHE_ENTRIES } from '../../src/ai/cache.js';
+import {
+  VerdictCache,
+  cacheKey,
+  judgeId,
+  cacheBaseDir,
+  promptFingerprint,
+  MAX_CACHE_ENTRIES,
+} from '../../src/ai/cache.js';
+import { buildSystemPrompt, buildVerificationSystemPrompt, buildRemediationSystemPrompt } from '../../src/ai/prompt.js';
+import { createHash } from 'node:crypto';
 import type { Finding } from '../../src/core/types.js';
 
 const finding = (p: Partial<Finding> = {}): Finding => ({
@@ -44,6 +53,25 @@ describe('judgeId', () => {
     expect(judgeId('anthropic:m')).toBe('anthropic:m');
     expect(judgeId('anthropic:m', ['openrouter:a', undefined])).toBe('anthropic:m|panel:openrouter:a,unknown');
     expect(judgeId(undefined)).toBe('unknown');
+  });
+
+  it('marks a judge that skipped the verify pass — an unverified FP is not the same verdict', () => {
+    expect(judgeId('anthropic:m', [], { verify: false })).toBe('anthropic:m|noverify');
+    expect(judgeId('anthropic:m', [], { verify: true })).toBe('anthropic:m');
+    expect(judgeId('anthropic:m', ['x'], { verify: false })).toBe('anthropic:m|panel:x|noverify');
+  });
+});
+
+describe('promptFingerprint', () => {
+  const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+  it('covers the user-content rendering, not only the system prompts (a format change must invalidate)', () => {
+    expect(promptFingerprint('triage')).toMatch(/^[0-9a-f]{64}$/);
+    expect(promptFingerprint('triage')).not.toBe(sha(`${buildSystemPrompt()}\n${buildVerificationSystemPrompt()}`));
+    expect(promptFingerprint('remediation')).not.toBe(sha(buildRemediationSystemPrompt()));
+    expect(promptFingerprint('triage')).not.toBe(promptFingerprint('remediation'));
+  });
+  it('is stable across calls', () => {
+    expect(promptFingerprint('triage')).toBe(promptFingerprint('triage'));
   });
 });
 

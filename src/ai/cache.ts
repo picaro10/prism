@@ -3,7 +3,13 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFil
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Finding } from '../core/types.js';
-import { buildRemediationSystemPrompt, buildSystemPrompt, buildVerificationSystemPrompt } from './prompt.js';
+import {
+  buildRemediationSystemPrompt,
+  buildSystemPrompt,
+  buildUserContent,
+  buildVerificationSystemPrompt,
+} from './prompt.js';
+import type { TriageUnit } from './types.js';
 
 /**
  * Verdict cache — the AI layer's memory between runs.
@@ -56,9 +62,60 @@ interface CacheFile {
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
-/** Fingerprint of the prompt texts: editing a prompt invalidates every cached verdict. */
-const TRIAGE_PROMPT_FINGERPRINT = sha256(`${buildSystemPrompt()}\n${buildVerificationSystemPrompt()}`);
-const REMEDIATION_PROMPT_FINGERPRINT = sha256(buildRemediationSystemPrompt());
+/**
+ * A fixed synthetic unit rendered through buildUserContent: its rendering is
+ * part of the fingerprint, so a change to the USER-content format (how the
+ * flagged line is quoted, how related files or content-less batches are laid
+ * out) invalidates cached verdicts exactly like a system-prompt edit does.
+ */
+const SAMPLE_UNIT: TriageUnit = {
+  file: 'src/sample.ts',
+  content: 'const a = 1;\nconst b = secret;\n',
+  findings: [
+    {
+      id: 'SEC-SAMPLE',
+      category: 'security',
+      severity: 'high',
+      title: 'sample',
+      description: 'sample',
+      file: 'src/sample.ts',
+      line: 2,
+      meta: { k: 'v' },
+    },
+  ],
+  neighbors: [{ file: 'src/neighbor.ts', content: 'export const secret = 1;\n', reason: 'sample' }],
+};
+const SAMPLE_BATCH: TriageUnit = {
+  file: null,
+  content: '',
+  findings: [
+    {
+      id: 'DEP-SAMPLE',
+      category: 'dependencies',
+      severity: 'low',
+      title: 'sample',
+      description: 'sample',
+      file: 'package.json',
+    },
+  ],
+};
+
+/** Fingerprint of everything the model is told: system prompts + the user-content rendering. */
+export function promptFingerprint(kind: 'triage' | 'remediation'): string {
+  if (kind === 'remediation') {
+    return sha256(`${buildRemediationSystemPrompt()}\n${buildUserContent(SAMPLE_UNIT, 'Findings to fix:')}`);
+  }
+  return sha256(
+    [
+      buildSystemPrompt(),
+      buildVerificationSystemPrompt(),
+      buildUserContent(SAMPLE_UNIT),
+      buildUserContent(SAMPLE_BATCH),
+    ].join('\n'),
+  );
+}
+const TRIAGE_PROMPT_FINGERPRINT = promptFingerprint('triage');
+const REMEDIATION_PROMPT_FINGERPRINT = promptFingerprint('remediation');
 
 export interface KeyParts {
   kind: 'triage' | 'remediation';
@@ -78,10 +135,20 @@ export function cacheKey(parts: KeyParts): string {
   );
 }
 
-/** The judge identity string for a triage client plus optional verification panel. */
-export function judgeId(clientId: string | undefined, verifierIds: Array<string | undefined> = []): string {
+/**
+ * The judge identity string: client, optional verification panel, and
+ * whether the verify pass ran. A false-positive that skipped the skeptical
+ * re-check (`--no-ai-verify`) is a different, weaker verdict than one that
+ * survived it — it must never be served to a run that asked for verification.
+ */
+export function judgeId(
+  clientId: string | undefined,
+  verifierIds: Array<string | undefined> = [],
+  opts: { verify?: boolean } = {},
+): string {
   const panel = verifierIds.map((v) => v ?? 'unknown');
-  return `${clientId ?? 'unknown'}${panel.length ? `|panel:${panel.join(',')}` : ''}`;
+  const base = `${clientId ?? 'unknown'}${panel.length ? `|panel:${panel.join(',')}` : ''}`;
+  return opts.verify === false ? `${base}|noverify` : base;
 }
 
 /** Resolve the operator's cache directory (see module doc). */

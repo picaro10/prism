@@ -48,7 +48,13 @@ const STRIPE_KEY = join('sk', '_live_', 'abcDEF123456789012345678');
 const DB_URL = join('postgres://app:', 'S3cr3tPr0d', 'Pa55', '@db.internal:5432/app');
 // A public VAPID key (Web Push): high entropy by construction, public by definition.
 // Assembled from pieces under the entropy scanner's 20-char floor: never contiguous in the repo.
-const VAPID_PUBLIC = join('BNcRdreALRFXTkOOUH', 'K1EtK2wtaz5Ry4YfYCA', '_-i8ptV4jr3sszLQ0t', 'cmv1x5KFepJNEkcqHV', 'fa2dS2S8');
+const VAPID_PUBLIC = join(
+  'BNcRdreALRFXTkOOUH',
+  'K1EtK2wtaz5Ry4YfYCA',
+  '_-i8ptV4jr3sszLQ0t',
+  'cmv1x5KFepJNEkcqHV',
+  'fa2dS2S8',
+);
 const PACKAGE_JSON = JSON.stringify({ name: 'ai-bench-case', version: '1.0.0' });
 
 export const AI_CASES: AiBenchCase[] = [
@@ -213,6 +219,37 @@ export const AI_CASES: AiBenchCase[] = [
     target: { file: 'tests/config.test.ts', id: 'TST-014' },
     expect: 'real',
     why: 'The test exercises a copy of the schema, not src/config.ts — the real module can drift and the test stays green.',
+  },
+
+  // ── Real, no-code tier: judged from the finding's facts alone ───────────────
+  {
+    name: 'real-wildcard-dependency-version-no-code',
+    categories: ['dependencies'],
+    // `none` tier: the judge sees no file, only the finding. It must still call it.
+    files: {
+      'package.json': JSON.stringify({ name: 'ai-bench-case', version: '1.0.0', dependencies: { lodash: '*' } }),
+      'package-lock.json': JSON.stringify({ name: 'ai-bench-case', lockfileVersion: 3, packages: {} }),
+    },
+    target: { file: 'package.json', id: 'DEP-002' },
+    expect: 'real',
+    why: 'A wildcard version resolves to whatever the registry serves next — unreproducible builds and a supply-chain door; the fact stands without reading code.',
+  },
+  {
+    name: 'real-god-file-no-code',
+    categories: ['structure'],
+    // `none` tier: 1,200 lines is the evidence; the judge is not shown them.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'README.md': '# x\n',
+      '.gitignore': 'node_modules\n',
+      'src/everything.ts': Array.from(
+        { length: 1200 },
+        (_, i) => `export function f${i}(x: number) { return x + ${i}; }`,
+      ).join('\n'),
+    },
+    target: { file: 'src/everything.ts', id: 'STR-011' },
+    expect: 'real',
+    why: 'A 1,200-line module is a maintainability hotspot by construction; the line count is the whole evidence and it is not in dispute.',
   },
 
   // ── False positives: letter-true, benign in context, same file ────────────

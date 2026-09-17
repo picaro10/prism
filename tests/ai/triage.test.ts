@@ -526,6 +526,27 @@ describe('runTriage', () => {
       expect(c2.units).toHaveLength(1); // judged again, not served from cache
     });
 
+    it('a false-positive stored under --no-ai-verify is NOT reused by a run that verifies', async () => {
+      const cache = freshCache();
+      const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];
+      const fp = (u: TriageUnit): Verdict[] =>
+        u.findings.map((f) => ({
+          findingKey: findingKey(f),
+          classification: 'false-positive',
+          confidence: 0.8,
+          reasoning: 'fp',
+        }));
+      const lenient = new FakeClient(fp, realVerdicts);
+      const r1 = await runTriage(report(findings), reader, lenient, { cache, verify: false });
+      expect(r1.verdicts[0].classification).toBe('false-positive'); // unverified, by request
+      // Same judge, now WITH the skeptical pass: the unverified FP must not shortcut it.
+      const skeptical = new FakeClient(fp, realVerdicts);
+      const r2 = await runTriage(report(findings), reader, skeptical, { cache, verify: true });
+      expect(skeptical.units).toHaveLength(1);
+      expect(skeptical.verifyUnits).toHaveLength(1);
+      expect(r2.verdicts[0].classification).toBe('real');
+    });
+
     it('a run served entirely from cache is not "failed for every group"', async () => {
       const cache = freshCache();
       const findings = [finding({ id: 'SEC-AWS-KEY', file: 'src/a.ts', line: 1 })];

@@ -317,21 +317,29 @@ function analyzeCompose(file: string, content: string): { findings: Finding[]; s
   const MAX_PORTS_PENALTY = 2.0;
   let service: string | null = null;
   let inServices = false;
+  // The indentation of service names is whatever the file uses (2 or 4
+  // spaces are both common): learned from the first key under `services:`.
+  let serviceIndent: number | null = null;
   const portFlagged = new Set<string>();
   const sockFlagged = new Set<string>();
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    if (/^\s*#/.test(l)) continue;
+    if (/^\s*#/.test(l) || l.trim() === '') continue;
     const top = /^([A-Za-z0-9_.-]+):\s*$/.exec(l);
     if (top) {
       inServices = top[1] === 'services';
       service = null;
+      serviceIndent = null;
       continue;
     }
-    const svc = /^ {2}([A-Za-z0-9_.-]+):\s*$/.exec(l);
-    if (svc && inServices) {
-      service = svc[1];
-      continue;
+    if (inServices) {
+      const indent = l.length - l.trimStart().length;
+      if (serviceIndent === null) serviceIndent = indent;
+      const svc = indent === serviceIndent ? /^\s*([A-Za-z0-9_.-]+):\s*$/.exec(l) : null;
+      if (svc) {
+        service = svc[1];
+        continue;
+      }
     }
     const where = service ?? '(top level)';
 

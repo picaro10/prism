@@ -243,6 +243,32 @@ describe('DockerAnalyzer — compose services: docker.sock (DOC-025) and per-ser
     expect(ports[1].line).toBe(10);
   });
 
+  it('detects services whatever the indentation (4-space composes are common)', async () => {
+    const compose = [
+      'version: "3.9"',
+      'services:',
+      '    api:',
+      '        image: node:22',
+      '        ports:',
+      '            - "8000:8000"',
+      '    worker:',
+      '        image: node:22',
+      '        volumes:',
+      '            - /var/run/docker.sock:/var/run/docker.sock',
+      'volumes:',
+      '    data: {}',
+      '',
+    ].join('\n');
+    const r = await run(compose);
+    const ports = r.findings.filter((f) => f.id === 'DOC-024');
+    expect(ports).toHaveLength(1);
+    expect(ports[0].title).toMatch(/: api$/);
+    const socks = r.findings.filter((f) => f.id === 'DOC-025');
+    expect(socks).toHaveLength(1);
+    expect(socks[0].title).toMatch(/: worker$/);
+    expect(r.findings.some((f) => /top level/.test(f.title))).toBe(false);
+  });
+
   it('treats an explicit 0.0.0.0 binding like a bare mapping', async () => {
     const compose = ['services:', '  api:', '    ports:', '      - "0.0.0.0:8000:8000"', ''].join('\n');
     const r = await run(compose);

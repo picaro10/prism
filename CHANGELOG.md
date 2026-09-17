@@ -24,6 +24,24 @@ All notable changes to PRISM are documented here. The format is based on
   log line look like prompt construction (two field false positives on a
   real agent, fixed before the rule shipped).
 
+### Fixed
+- **Verdict cache: a false positive stored under `--no-ai-verify` could be
+  served to a run that verifies.** The cache key now carries whether the
+  skeptical pass ran (`|noverify` in the judge identity); an unverified FP is
+  a different, weaker verdict and never shortcuts verification.
+- **Verdict cache: the prompt fingerprint covered only the system prompts.**
+  It now also hashes the user-content rendering of a fixed synthetic unit
+  (file + flagged line + related file, and a content-less batch), so a change
+  to how findings are laid out invalidates cached verdicts like a prompt edit.
+- **`DOC-024`/`DOC-025` assumed 2-space service indentation.** The service
+  indent is learned from the first key under `services:`; 4-space composes
+  now get per-service findings with names instead of one "(top level)" hit.
+- **Verification of content-less (`none`-tier) findings had no workable
+  path**: the skeptical prompt demanded a quoted line that a batched finding
+  cannot have. It now accepts the finding's own stated facts as the evidence
+  for such findings — and still forbids assuming code that was not shown.
+  Two `none`-tier real cases join the AI benchmark so that path is measured.
+
 ### Changed
 - **`DOC-024` fires once per service, not once per file**, and names the
   service. A dev compose with two published services used to report one. An
