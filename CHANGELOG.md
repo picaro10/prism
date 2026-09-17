@@ -73,6 +73,16 @@ All notable changes to PRISM are documented here. The format is based on
   Two `none`-tier real cases join the AI benchmark so that path is measured.
 
 ### Changed
+- **README cut from 680 lines to ~130.** The first screen is now the
+  tagline, three lines on why PRISM exists, install + run, real CLI output
+  with real AI verdicts on a four-file demo, and "how it earns trust" (both
+  benchmarks with their n, unknown ≠ clean, self-audit on three OSes).
+  Nothing was deleted: every command, flag, config key, the scoring model,
+  the false-positive notes and the development workflow moved verbatim to
+  `docs/USAGE.md`; the `--ai` and `triage` sections to `docs/AI-TRIAGE.md`;
+  the support matrix and roadmap to `docs/SUPPORT.md`. The stale
+  "~96% credibility on orion at v0.9.0" line is gone — the false-positive
+  claim is the benchmark that fails CI, with its n.
 - **New tagline, in README and the npm description**: "The auditor for
   AI-written code, its agents, and the pipelines that ship it" — with the
   method as subtitle (deterministic rules with their own false-positive

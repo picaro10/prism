@@ -1,681 +1,115 @@
 # PRISM
 
 [![CI](https://github.com/picaro10/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/picaro10/prism/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@latenciatech/prism)](https://www.npmjs.com/package/@latenciatech/prism)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)
 
 **The auditor for AI-written code, its agents, and the pipelines that ship it.**
 *Deterministic rules that ship with their own false-positive traps, and an AI judge that reads the code.*
 
-> **What it is.** About a hundred curated, deterministic checks — secrets, AI-agent and CI/CD
-> risks, Docker, dependencies, tests, structure — plus an optional adversarial LLM triage layer
-> that reads the flagged code *and the files it imports* to kill the false positives static
-> tools are famous for. Every rule ships with the false-positive traps it was tested against.
->
-> **What it is not.** A replacement for semgrep, CodeQL or Snyk. Deep dataflow is a curated
-> semgrep pack, wrapped; the depth is theirs. What is PRISM's own is the agentic and workflow
-> rules, the cross-checks against the real repository, the integrated score, and the judge.
->
-> **Status.** 1.x, one maintainer, field-tested on real agent codebases and CI pipelines. The
-> report JSON schema and the config file can still change between minor versions — the
-> [CHANGELOG](CHANGELOG.md) lists every change. Read the
-> [support matrix](#language--platform-support) before trusting a score on a stack PRISM only
-> partially understands: Python is partial, most other languages are metadata only.
-
-PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) built for the codebases the agentic
-era actually produces: fast-growing, largely AI-written, wired to agent tools and CI pipelines that
-deploy on every push. It scans a local codebase and produces a scored audit report across eight
-dimensions spanning three fronts:
-
-- **Security** — hardcoded **secrets** and committed `.env` files; **taint dataflow** (SQLi, XSS,
-  SSRF, path traversal, deserialization and command injection via curated semgrep rules);
-  **AI-agent risks** (shell injection in agent tools, secrets and external content in LLM prompts,
-  destructive tools without confirmation, fail-open security gates); **CI/CD workflow risks**
-  (pwn requests, script injection, unpinned actions); and **multi-ecosystem known vulnerabilities**
-  (npm audit + OSV.dev for Python/Rust/Go/PHP/Ruby).
-- **Code quality** — decorative tests (zero assertions), disconnected tests (no SUT import),
-  skipped-test accumulation, snapshot overuse and test-to-source ratio; plus mixed naming
-  conventions, mixed natural languages and inconsistent indentation — the "many hands / many
-  models" fingerprint.
-- **Structure & project hygiene** — god files, circular imports (resolved import graph), dead files
-  (tsconfig-alias-aware reachability), Dockerfile and docker-compose hardening, and project layout.
-
-Security-relevant rules map to **CWE/OWASP**, and SARIF
-output feeds GitHub Code Scanning directly.
-
-It combines **deterministic static analysis** with an **optional adversarial LLM triage layer**: the
-static analysis needs no API key and degrades gracefully offline (the `npm audit`, OSV.dev and
-update checks use the network when available — offline they report explicit UNKNOWN findings,
-never a silent clean), while the AI enrichment (`--ai`) is opt-in
-and re-judges every finding in context — the pass that kills the false positives static security
-tools are famous for. Both are shipped and working today, and PRISM audits itself with them in CI.
-
----
-
-## What PRISM checks
-
-| Category | Weight | What it analyzes |
-|---|---|---|
-| **Security** | 2.0× | Hardcoded secrets, API keys, tokens; `.env` files committed to the repo; Shannon-entropy anomalies. Plus **taint/dataflow analysis** (`SG-*`) when [semgrep](https://semgrep.dev) is installed: SQLi, XSS, SSRF, path traversal, deserialization and command/code injection traced from user input to sink, in JS/TS and Python, with CWE/OWASP metadata. Optional — without semgrep the category degrades to a notice, never a penalty. |
-| **Dependencies** | 1.5× | Lock file presence; wildcard versions (`*`, `^`, `~` in sensitive positions); `npm audit` vulnerabilities; Python `requirements.txt` unpinned versions; `engines` field. Plus **multi-ecosystem SCA via [OSV.dev](https://osv.dev)**: known vulnerabilities in `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.mod`, `composer.lock` and `Gemfile.lock` (`DEP-OSV-*`). |
-| **Tests** | 1.5× | Test suite existence; test-to-source ratio; decorative tests (zero assertions in entire file); empty test files; skipped/disabled tests; snapshot overuse; tests with no SUT import. |
-| **Structure** | 1.0× | README, `.gitignore`, linter config, `tsconfig`; flat-root dumps; excessive nesting; god files (`STR-011`: >400 / >600 / >900 / >1500 LOC with tiered severity); circular import dependencies (`STR-012`, via Tarjan SCC on the resolved import graph); dead files (`STR-013`: TS/JS source nothing reaches — counts type-only imports, tsconfig aliases, package.json refs, path strings in code/HTML/Dockerfiles/shell, shebang and convention entries; skips itself if a tsconfig is unparseable). |
-| **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0` (per service), and the Docker socket mounted into a container (`DOC-025`, critical — recognizes a socket proxy and asks for its allowlist instead). |
-| **Consistency** | 0.8× | Mixed file-naming conventions (kebab/snake/camel/pascal) within the same language; mixed natural language (Spanish + English identifiers in the same file); inconsistent indentation (tabs vs spaces). |
-| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell injection in agent tools (`AGT-001`), secrets (`AGT-002`) and external content (`AGT-004`) in LLM prompts, destructive tools without confirmation (`AGT-003`), public MCP binds (`AGT-005`), fail-open security gates (`AGT-006`). External content includes fetched pages, request bodies, e-mail and chat-message text (Telegram/Slack-style handlers). JS/TS and Python shapes (f-strings, `.format()`, `subprocess`, `except`). High-signal and conservative by design. |
-| **Workflow** | 1.0× | GitHub Actions risks — pwn requests (`pull_request_target` + PR-head checkout), script injection from event data, unpinned third-party actions, missing/over-broad permissions, triggers filtering nonexistent branches (a CI that never runs), fail-open gates, missing timeouts/concurrency/caching. Cross-checked against the real repository, not just the YAML. |
-
-The overall score is a weighted average of per-category scores, each on a 0–10 scale. It is a
-**heuristic indicator, not a calibrated metric**: penalties are hand-tuned against real projects
-and a regression benchmark, so treat the score as a consistent internal signal for tracking a
-codebase over time — not as a scientific measurement comparable across arbitrary projects.
-
-**Full rule catalog:** every rule id, severity, and its known false-positive traps are documented
-in [`docs/rules/`](docs/rules/README.md). A test keeps the catalog in sync with the analyzers —
-an undocumented rule fails CI.
-
----
-
-## Requirements
-
-- Node.js **≥ 22**
-- npm
-
----
-
-## Install
-
-**From npm**:
+Code written by agents gets deployed by pipelines nobody reads. PRISM scans a codebase for the
+risks that era actually produces — leaked secrets, shell injection inside agent tools, prompt
+injection, destructive tools with no confirmation, CI workflows a fork can hijack, containers
+with the Docker socket mounted — and then, optionally, has a model read every flagged line
+*and the files it imports* before calling it real. It only asserts what it can show you.
 
 ```sh
 npm install -g @latenciatech/prism
-prism analyze <path>
-# or without installing:
-npx @latenciatech/prism analyze <path>
+prism analyze .            # static, offline, no key
+prism analyze . --ai       # + adversarial AI triage (ANTHROPIC_API_KEY or OPENROUTER_API_KEY)
 ```
 
-**From source**:
+## What it looks like
 
-```sh
-git clone https://github.com/picaro10/prism.git
-cd prism
-npm install
-npm run build
-node dist/cli/index.js analyze <path>
-```
-
-The compiled CLI is placed at `dist/cli/index.js` and exposed as the `prism` binary via the `bin` field in `package.json`.
-
-During development you can run without building:
-
-```sh
-npm run dev -- analyze <path>
-# equivalent to: tsx src/cli/index.ts analyze <path>
-```
-
----
-
-## Usage
-
-### `analyze` — full audit
+A four-file demo: a Stripe key in source, an agent tool that shells out, a destructive tool
+with no gate, a privileged container. Real output, real model:
 
 ```
-prism analyze <target> [options]
+  Overall Score
+  █████████████████████████████████░░░░░░░  8.2/10
+
+  security       █████████████████░░░  8.5/10 (2 findings)
+  docker         ██████████████░░░░░░  7/10 (4 findings)
+  agentic        █████████████████░░░  8.5/10 (2 findings)
+
+  🔴 CRITICAL (2)
+    SEC-STRIPE-SK Stripe Secret Key detected → src/pay.ts:1
+      ✓ real (92%) — A live-prefixed Stripe secret key (sk_live_) is hardcoded and exported from source.
+    DOC-020 Container running in privileged mode → docker-compose.yml:4
+      ✓ real (97%) — privileged: true is explicitly set, granting the container full host access.
+  🟠 HIGH (1)
+    AGT-001 Shell command built with interpolation (agent command-injection risk) → src/tools.ts:9
+      ✓ real (97%) — execSync interpolates cmd directly into a shell string with no escaping or validation.
+      💡 Use execFile/execFileSync with an argument array (no shell), or strictly validate the argument.
+  🟡 MEDIUM (2)
+    AGT-003 Destructive agent tool with no confirmation gate → src/tools.ts:4
+      ✓ real (85%) — The delete_order tool performs a destructive action and its definition has no
+        confirmation, approval, or dangerous-operation marker, so an agent could invoke it autonomously.
+  ℹ️  INFO (1)
+    SEC-SEMGREP-MISSING Semgrep not installed — taint analysis skipped
+
+  AI triage: 8 real · 0 false positives · 0 uncertain
 ```
 
-The target can be a **local path**, a **git URL** (`https://…`, `git@…`, or anything ending in
-`.git` — shallow-cloned to a temp dir), or a **.zip archive** (extracted to a temp dir, with
-zip-slip protection). Temporary copies are deleted after the audit unless `--keep` is passed.
+Every finding has a stable id, a file and line, a fix, and — with `--ai` — a verdict that cites the
+code. JSON, HTML, SARIF and JUnit outputs, exit codes for CI, and a `diff` command for regression
+gates are all in [docs/USAGE.md](docs/USAGE.md).
 
-**Options:**
+## How it earns trust
 
-| Flag | Default | Description |
+- **Every rule ships with the false positives it once produced.** A [benchmark](docs/USAGE.md#false-positive-benchmark)
+  of 28 cases — 14 planted issues, 14 traps that were real mistakes on real projects — fails CI if
+  a rule regresses in either direction.
+- **The AI judge is measured, not trusted.** A [second benchmark](docs/USAGE.md#ai-triage-benchmark)
+  (17 cases: genuine issues it must not excuse, false positives it should catch, cross-file ones
+  whose evidence lives in another module) hard-fails only when a real issue is excused. Last live
+  run: 17/17. Seventeen is a signal, not a statistic — the corpus grows with every field mistake.
+- **Unknown is never clean.** No semgrep, no network, an unreadable directory, a capped scan: each
+  shows up as a finding or a summary note, never as a silent pass. Categories with nothing to
+  analyze are N/A, not 10/10.
+- **It runs on itself**, on every push, on Linux, macOS and Windows, and a [SECURITY.md](SECURITY.md)
+  says how to report the day it gets something wrong.
+
+## What it checks
+
+| Category | Weight | In one line |
 |---|---|---|
-| `-o, --output <format>` | `cli` | Output format: `cli` (colored terminal), `json`, or `html` |
-| `-f, --file <path>` | — | Output file path (json: stdout if omitted; html: `prism-report.html`) |
-| `--only <categories>` | all | Run only the specified analyzers (comma-separated) |
-| `--min-score <n>` | `6` | Fail (exit `1`) when the overall score is below this (0–10) |
-| `--fail-on <severity>` | — | Fail when any finding is at or above this severity (`critical`/`high`/`medium`/`low`) |
-| `--max-critical <n>` | — | Fail when there are more than N critical findings |
-| `--max-high <n>` | — | Fail when there are more than N high findings |
-| `--baseline <ref>` | — | New-code gate: severity rules apply only to findings **not** in this baseline (a git ref like `origin/main`, or a saved `.json` report) |
-| `--junit <path>` | — | Also write a JUnit XML report (findings as failed test cases) for CI |
-| `--sarif <path>` | — | Also write a SARIF 2.1.0 report (for GitHub Code Scanning, VS Code, etc.) |
-| `--dry-run` | false | Run the AI layer with canned responses — no network, no key |
-| `--keep` | false | Keep the temporary clone/extraction instead of deleting it |
-| `-v, --verbose` | false | Show per-file progress during the audit |
-| `--config <path>` | auto | Explicit config file (default: discover `prism.config.json` / `.prismrc.json` in the target root) |
-| `--no-config` | — | Ignore any config file for this run |
-
-**Examples:**
-
-```sh
-# Full audit with terminal output
-prism analyze /path/to/project
-
-# Audit a GitHub repo directly
-prism analyze https://github.com/user/repo
-
-# Audit a zip archive
-prism analyze project.zip
-
-# Save a JSON report to disk
-prism analyze /path/to/project -o json -f report.json
-
-# Print JSON to stdout
-prism analyze /path/to/project -o json
-
-# Run only security and tests analyzers
-prism analyze /path/to/project --only security,tests
-
-# Verbose mode (shows per-analyzer progress)
-prism analyze /path/to/project -v
-```
-
-**Exit codes** (a stable contract for CI and coding agents):
-
-| Code | Meaning |
-|---|---|
-| `0` | The audit ran and the score met the threshold (`--min-score`, default 6) |
-| `1` | The audit ran but the score is **below** the threshold — findings to fix |
-| `2` | Usage/config error — bad flag, missing API key, unresolvable target |
-| `3` | Internal error — the audit threw and could not complete |
-
-Codes `0`/`1` are the audit *result*; `2`/`3` mean it could not produce one. A CI gate keys
-on `0` vs non-zero; an agent can tell "fix the findings" (`1`) from "you invoked me wrong" (`2`).
-
-**Quality gate for CI.** The score is not the only door — a single new critical can hide behind a
-good average. Combine `--min-score` with per-severity rules so security issues fail hard:
-
-```sh
-prism analyze . --min-score 8.5 --fail-on critical --max-high 0 --junit prism-junit.xml
-```
-
-The gate fails (exit `1`) if *any* rule trips: score below `--min-score`, a finding at or above
-`--fail-on`, or a count over `--max-critical`/`--max-high`. Every failing reason is printed.
-
-**New-code gate ("clean as you code").** `--baseline <git-ref>` makes the severity rules apply
-only to findings that are **not** already in the baseline — so legacy debt doesn't block, but new
-code can't add a critical. PRISM checks the ref out into a temporary worktree, audits it, and
-diffs by a **fingerprint** (rule + file + normalized code) that survives line moves and
-re-indentation, so a shifted finding isn't mistaken for a new one:
-
-```sh
-# Fail only if THIS branch introduces a new critical vs. main:
-prism analyze . --baseline origin/main --fail-on critical --min-score 0
-```
-
-`--baseline` also accepts a saved `.json` report instead of a git ref.
-
-**SARIF for GitHub Code Scanning.** `--sarif prism.sarif` writes a SARIF 2.1.0 document; upload it
-with `github/codeql-action/upload-sarif` and findings appear as inline annotations on the PR and
-in the repo's Security tab, ranked by `security-severity`. Every security-relevant rule carries a
-**CWE and OWASP Top 10 (2021) mapping** (`external/cwe/…` / `external/owasp/…` tags — see
-[docs/rules/cwe-owasp.md](docs/rules/cwe-owasp.md)), so PRISM alerts classify and group alongside
-CodeQL or Snyk output.
-
-**JSON output** (`-o json`) is a stable, documented interface: with `-f` it writes the report
-file; without `-f` it prints **only** the JSON to stdout (all logs go to stderr), so it pipes
-cleanly to `jq` or a file.
-
-**JUnit for CI:** `--junit report.xml` writes a JUnit XML sidecar alongside any output format —
-each finding becomes a failed test case, so GitHub Actions / GitLab render them natively:
-
-```sh
-prism analyze . --junit prism-junit.xml   # findings show up as failed tests in the CI UI
-```
-
-**Other behavior:** interrupting a run with Ctrl-C cleans up any temporary clone/extraction
-before exiting (code `130`). PRISM checks npm for a newer version at most once per 24h (only the
-package name is sent); set `PRISM_NO_UPDATE_CHECK=1` to disable it.
-
-### `init` — create a persistent config
-
-```
-prism init [--dir <path>] [--yes] [--force]
-```
-
-An interactive wizard (on a TTY) that asks the decisions worth making once — score threshold,
-severity gate, analyzers, AI provider, output format — and writes a `prism.config.json`. From
-then on `prism analyze .` needs no flags. `--yes` (or a non-TTY stdin, so it never blocks CI)
-skips the wizard and writes sensible defaults; `--force` overwrites an existing file.
-
-### Configuration file
-
-`prism analyze` discovers `prism.config.json` (or `.prismrc.json`) at the analyzed project's
-root. Every key mirrors a CLI flag, and precedence is always: **explicit CLI flag > config file
-> built-in default**.
-
-```json
-{
-  "minScore": 8,
-  "categories": ["security", "dependencies", "tests", "structure", "docker"],
-  "failOn": "critical",
-  "baseline": "origin/main",
-  "ai": {
-    "enabled": true,
-    "provider": "openrouter",
-    "model": "anthropic/claude-sonnet-4.6",
-    "verify": true,
-    "remediate": true
-  },
-  "output": { "format": "html", "file": "reports/prism.html", "sarif": "prism.sarif" },
-  "suppressions": [
-    {
-      "rule": "SEC-STRIPE-SK",
-      "file": "tests/fixtures/**",
-      "reason": "Fake key used to test the detector itself",
-      "expires": "2027-01-01"
-    }
-  ]
-}
-```
-
-The schema is **strict**: an unknown key (a typo like `minscore`) is a usage error, not a
-silently ignored setting — a misspelled gate must not become a disabled gate.
-
-**Justified suppressions.** `.prismignore` removes whole paths from analysis; a suppression
-accepts **one reviewed finding** and leaves everything else armed. Each entry names a rule id,
-an optional file pattern (gitignore syntax), a **mandatory `reason`** — that's what makes it
-justified — and an optional `expires` date so exceptions can't quietly outlive their
-justification. Suppressed findings are removed from the report, the score, the quality gates,
-and the AI triage (no tokens spent judging what a human already ruled on), but they are
-**listed in the output with their reasons** — transparency, not a black hole. An expired entry
-stops applying and warns; an entry that matches nothing warns as stale. The score refund uses a
-standard per-severity table (critical 1.5 · high 1.0 · medium 0.5 · low 0.2), an approximation
-by design since each analyzer scores with its own penalties.
-
-**Trust boundary.** Config discovery only applies to **local** targets. A config file inside a
-cloned git URL or extracted `.zip` is ignored (with a notice): a third-party repo you're
-auditing doesn't get to pick its own gates or suppress its own findings. Pass `--config <path>`
-to opt in explicitly.
-
-### `scan` — quick metadata
-
-```
-prism scan <path>
-```
-
-Prints project metadata without running the full audit: file count, detected stack, runtime, package manager, git/Docker/CI presence, and detected frameworks. Useful for a fast sanity check.
-
-### `doctor` — environment check
-
-```
-prism doctor
-```
-
-Reports whether the environment is ready: Node version (must be ≥ 22), `git` availability
-(needed for git URLs), an AI provider key (for `--ai`), and a writable working directory.
-Exits `1` only on a **blocking** issue (e.g. unsupported Node); warnings (missing key, no git)
-exit `0` since static analysis works without them.
-
-### `finding get` — a self-contained bundle for one finding
-
-```
-prism finding get <report.json> <findingKey> [--context <n>]
-```
-
-Prints a single JSON object with everything a coding agent needs to act on one finding: the
-finding itself, a code **snippet** around the flagged line (±`--context`, default 3), the AI
-**verdict** and proposed **fix** (if the report was triaged), the fix **target** (`file:line`),
-and **scan** correlation (project, timestamp, score) so bundles from different scans never mix.
-JSON is the only thing on stdout, so it pipes straight into an agent:
-
-```sh
-prism analyze . --ai -o json -f report.json
-prism finding get report.json "SEC-DB-URL|docker-compose.yml|8"
-```
-
-The `findingKey` is the `id|file|line` string shown in the JSON report. A moved report whose
-source file is gone still works — the snippet degrades to `null` rather than failing.
-
-### `diff` — compare two reports (regression gate)
-
-```
-prism diff <baseline.json> <current.json>
-```
-
-Compares two saved JSON reports by finding. It lists **new** findings (regressions) and
-**resolved** ones, shows the score delta, and **exits `1` when any new finding appeared** —
-otherwise `0`. Bad/missing report files exit `2`. Ideal as a CI baseline gate:
-
-```sh
-prism analyze . -o json -f current.json
-prism diff baseline.json current.json   # fails the build on a regression
-```
-
-### `agent install` — wire PRISM into a coding agent
-
-```
-prism agent install <claude|cursor|codex|agents> [--dir <path>] [--min-score <n>]
-```
-
-Writes a short **verification skill** into the target agent's rule file — `CLAUDE.md` for
-`claude`, `.cursorrules` for `cursor`, `AGENTS.md` for `codex`/`agents` — instructing the agent
-to run `prism analyze . --output json` before finishing a task and to fix any regression it
-introduced (keyed on the exit-code contract above). The block lives between managed markers
-(`<!-- prism:start -->…<!-- prism:end -->`), so re-running updates it in place and **never
-touches your own content**. This turns PRISM from a one-off audit into a standing gate inside
-the agent's loop.
-
-### `--ai` — AI triage (Fase 2)
-
-```
-# Static analysis + LLM triage of every finding
-prism analyze <path> --ai
-
-# Override the triage model (default: claude-opus-4-8)
-prism analyze <path> --ai --ai-model claude-sonnet-4-6
-
-# Exercise the full AI pipeline with canned responses — no network, no API key
-prism analyze <path> --dry-run
-```
-
-`--dry-run` runs the whole triage → remediation → summary pipeline with canned verdicts (each
-clearly marked `[dry-run]`), so you can see the report shape or test the flow at **zero token
-cost** and without a key. It also works on the `triage` command.
-
-The static layer flags patterns; the AI layer **judges them in context**. With `--ai`, PRISM
-sends each finding (and the surrounding file's code) to Claude, which classifies it as
-`✓ real`, `✗ likely FP`, or `? uncertain`, with a confidence and a one-line reason — the same
-judgment that distinguishes a Docker mount path from a hardcoded secret, or a test fixture
-from production code.
-
-- **Two providers.** Default is the Anthropic API (`ANTHROPIC_API_KEY`), with full native
-  features (structured outputs, adaptive thinking, prompt caching). You can also use
-  **OpenRouter** (`OPENROUTER_API_KEY`), which is OpenAI-compatible — set `--ai-provider openrouter`
-  (auto-detected when only `OPENROUTER_API_KEY` is present). The OpenRouter default model is
-  `openai/gpt-4.1-mini` (cheap, for development); override with `--ai-model <slug>` (e.g.
-  `--ai-model anthropic/claude-opus-4.8`). OpenRouter uses JSON mode instead of Anthropic-native
-  structured outputs.
-- **Opt-in.** Without `--ai`, PRISM needs no key and **no source code ever leaves the machine**.
-  Three static checks do use the network when available — `npm audit` (registry advisory DB),
-  the OSV.dev lookup, and the npm update check — sending only package names/versions, never code;
-  offline, each reports an explicit UNKNOWN finding instead of a silent clean. `--ai` fails fast
-  if the selected provider's key is missing.
-- **Privacy note.** `--ai` sends snippets of the analyzed project's source (including the lines
-  that triggered each finding — a flagged secret's line among them) to the selected external
-  provider (Anthropic or OpenRouter). Do not use `--ai` on code you cannot share with a third
-  party. The static-only mode never transmits anything.
-- **It annotates, it does not re-score.** The static score is unchanged; the AI overlay informs
-  the human. If the AI call fails, the static report is still produced.
-- **False-positives are double-checked.** Any verdict the first pass calls `false-positive` gets
-  an adversarial re-check that must confirm it with concrete code evidence — otherwise the
-  finding stays `real`/`uncertain`. This catches lenient or hallucinated FPs (disable with
-  `--no-ai-verify`). Calls run concurrently (`--ai-concurrency <n>`, default 5).
-- **Verdict cache: unchanged code is never judged twice.** Every final verdict and fix is
-  stored under a key made of the prompts, the judge (provider, model, panel), the finding and a
-  hash of the exact content the model read. The next run — the next CI push, `prism triage` on
-  a saved report, or the same run after a Ctrl-C — reuses what it already knows and only pays
-  for what changed (`AI triage: … · 12 from cache`, and cached verdicts are tagged `[cached]`).
-  Editing a prompt, switching models or touching the file all miss on purpose; verdicts
-  synthesized from a failed call are never stored. The cache lives in the **operator's** cache
-  directory (`PRISM_CACHE_DIR`, else `$XDG_CACHE_HOME/prism`, `%LOCALAPPDATA%\prism\cache`, or
-  `~/.cache/prism`), never inside the audited project, and only for local targets — a clone or
-  zip is a throwaway directory. `--no-ai-cache` (or `ai.cache: false` in the config) judges
-  everything again. Cache `~/.cache/prism` in CI to keep the saving across runs.
-- **Context tiers: the model reads code only when code can change the verdict.** Every rule
-  declares how much context its triage needs (`CONTEXT_TIER` in `src/core/rule-metadata.ts`).
-  Line-pattern rules (secrets, Docker, workflows, test hygiene) send the flagged file.
-  Project-fact rules — god files, import cycles, dependency advisories, missing tests, mixed
-  conventions — are judged from the finding itself and batched into content-less calls: a
-  1,500-line file is big whether or not the model reads it. Cross-file rules (agentic,
-  taint) are `neighborhood` tier: see the next point. Unknown rules default to the safe,
-  expensive tier.
-- **Cross-file evidence, chosen deterministically.** The thing that makes an agentic or taint
-  finding benign often lives in another module — the executor that gates every destructive
-  tool, the validator whose body rejects shell metacharacters, the assertion helper that calls
-  `expect()`. For `neighborhood`-tier findings PRISM walks the import graph (no model in the
-  loop) and hands the judge the related files: modules the flagged file imports whose imported
-  names are used near the flagged line, and modules importing the flagged file that mention a
-  token from it (the tool name, the exported function). Bounded (4 files, 12 KB each, 30 KB
-  total), TS/JS only (tsconfig aliases resolved), and silent when nothing qualifies. On the
-  AI-triage benchmark this moved cross-file false positives caught from 1/3 to 3/3 with no
-  real issue excused. A cached verdict misses when a related file changes, not only the
-  flagged one.
-- **N-model vote.** A single model makes confident judgment errors (and re-checking with the
-  same model shares its blind spots). `--ai-vote model-a,model-b,model-c` makes every
-  false-positive verdict face a panel: the FP survives only if the panel is **unanimous** —
-  any skeptic's dissent blocks the excusal (the N-voter generalization of the single
-  adversarial re-check). A blocked FP becomes `real` (strict majority) or `uncertain`
-  (anything less — surfaced for the human). The tally is appended to the reasoning
-  (`[panel: 1 real · 2 fp · 0 uncertain]`). A voter that errors abstains as `uncertain`.
-  Only false-positive verdicts pay the panel cost.
-- **Remediation guide.** Every finding the triage confirms as `real` gets a concrete fix
-  proposal — what to change, where, with a short snippet when it helps — plus an honest effort
-  estimate (`low`/`medium`/`high`). Rendered inline under each finding (`🔧 fix`) and included
-  in JSON as `aiRemediation`. Only confirmed-real findings pay the extra call; disable with
-  `--no-ai-remediate`.
-- **Executive summary.** After triage, one more call writes a short prose assessment of the
-  project (overall health, what's urgent), focused on the confirmed-real findings. Rendered at
-  the top of the report (`🧠 AI Assessment`) and included in JSON as `aiSummary`. Disable with
-  `--no-ai-summary`.
-- Verdicts appear inline under each finding, plus a summary line
-  (`AI triage: N real · M false positives · K uncertain`), and are included in JSON output
-  under `aiTriage`.
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-prism analyze . --ai
-```
-
-### `triage` — re-run AI triage on a saved report
-
-```
-prism analyze <path> -o json -f report.json     # scan once
-prism triage report.json                          # re-triage cheaply, as often as you like
-prism triage report.json --ai-model openai/gpt-4o-mini   # compare models without re-scanning
-```
-
-Decouples the (cheap, fast) static scan from the (paid) LLM passes. Loads a saved JSON report,
-re-reads the project's files from its recorded `projectPath`, and runs triage + remediation +
-summary again — without re-scanning. Ideal for iterating on the AI layer or comparing models on
-the same report. Takes the same `--ai-*` flags as `analyze --ai`; requires the provider's API key.
-
-### `dashboard` — local web UI over saved reports
-
-```
-prism dashboard [dir]          # default dir: ./reports
-prism dashboard reports -p 4180
-```
-
-Serves a local dashboard (bound to `127.0.0.1` only — PRISM practices what it flags) listing
-every PRISM JSON report in the directory: project, score, findings count, AI triage tally, and
-date. Click through to the full HTML render of any report. Reports are re-read on every refresh, so
-new audits appear without restarting. Only plain file names inside the directory are served —
-path traversal gets a 404.
-
----
-
-## Example output
-
-```
-  🔍 PRISM
-  AI-powered project auditor by LatenciaTech
-
-  ✔ Audit complete in 312ms
-
-  ┌─────────────────────────────────────────────────────┐
-  │  my-project                             7.6 / 10   │
-  └─────────────────────────────────────────────────────┘
-
-  Category       Score   Findings
-  ──────────────────────────────────
-  security        6.5      3
-  dependencies    9.0      1
-  tests           7.0      2
-  structure       8.5      2
-  docker          5.0      4
-  consistency     9.5      0
-
-  Findings (8 total)
-  ──────────────────────────────────
-  CRITICAL
-    [SEC-001] Hardcoded API key detected
-              src/services/payment.ts:42
-              Suggestion: Move to environment variable.
-
-  HIGH
-    [DOC-001] Missing .dockerignore
-              Dockerfile present but no .dockerignore — COPY . . may
-              bundle secrets and node_modules into the image.
-
-    [DOC-010] Container runs as root
-              Dockerfile.api has no USER directive.
-
-  MEDIUM
-    [STR-011] God file detected (1,247 LOC)
-              src/core/engine.ts · Consider splitting into focused modules.
-
-  ...
-```
-
-The JSON output (`-o json`) mirrors this structure as a machine-readable object including `overallScore`, per-category `score` and `findings` arrays, `projectMeta` (detected stack, frameworks, package manager), and `durationMs`.
-
-The HTML output (`-o html`) renders the same report — scores, category bars, findings grouped by severity, AI verdicts with panel tallies, fix proposals, and the executive summary — as a **single self-contained file**: inline CSS, no JavaScript, no external assets, all content HTML-escaped. Open it in any browser, attach it to an email, or archive it; it needs nothing else.
-
----
-
-## Scoring weights
-
-```
-Overall score = Σ(category_score × weight) / Σ(weights)
-
-Security      × 2.0
-Dependencies  × 1.5
-Tests         × 1.5
-Agentic       × 1.5
-Structure     × 1.0
-Docker        × 1.0
-Workflow      × 1.0
-Consistency   × 0.8
-```
-
-A category with nothing to analyze is **N/A, not a silent 10/10**: a project with no Docker configuration gets `docker: N/A` and the category is excluded from the overall score entirely — "not analyzed" must never read as "perfect". A project with zero source files (pure infrastructure/Docker/YAML repo) likewise gets `tests: N/A` rather than a critical finding.
-
----
-
-## False-positive elimination
-
-Credibility is the primary design constraint. Every analyzer decision is checked against file context before a finding is emitted.
-
-**File-context classifier** (`src/utils/file-context.ts`) assigns each file one of: `source`, `test`, `fixture`, `template`, `security-tool`, `documentation`, `generated`, `vendor`, `config-template`. Files classified as fixture, template, documentation, generated, or vendor are skipped entirely. Findings in test files have their severity stepped down one level.
-
-**`.prismignore`** — place a `.prismignore` file at the project root to exclude paths from analysis. It uses the same syntax as `.gitignore`.
-
-**Specific decisions driven by credibility:**
-
-- The `SEC-AWS-SECRET` regex (any 40-character base64 string) was removed because it was the single largest source of false positives across all tested projects. Only `SEC-AWS-KEY` (AKIA prefix) is retained.
-- Docker secret mount paths (`./secrets/...`, `/run/secrets/...`) in docker-compose `environment` blocks are not flagged as hardcoded credentials.
-- Tests that import only integration frameworks (`supertest`, `playwright`, `@modelcontextprotocol/sdk`, `@nestjs/testing`, etc.) or fork a subprocess (`node:child_process` + `fork/spawn`) are recognized as integration tests, not flagged for missing SUT imports.
-- Projects with `totalLoc = 0` (no source files) return `tests: N/A` rather than a critical finding.
-- The import graph used for circular-dependency detection (`STR-012`) only counts value imports; `import type` statements that vanish at compile time are excluded from cycle detection.
-
-Every one of these started as a wrong finding on a real project. Each is now a trap in the
-[false-positive benchmark](#false-positive-benchmark) (n = 28 cases, half of them traps), which
-fails CI if the rule ever fires again — that, not a percentage, is the false-positive claim.
-
----
-
-## Development
-
-### Run tests
-
-```sh
-npm test               # vitest run (single pass)
-npm run test:watch     # vitest watch mode
-npm run test:coverage  # with coverage report
-```
-
-A large regression suite covers every analyzer, the utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI layer (with an injected fake client — the suite never hits the network), the benchmark corpora, and end-to-end CLI scenarios on Linux, macOS and Windows.
-
-### Lint
-
-```sh
-npm run lint           # biome check
-npm run lint:fix       # biome check --write
-```
-
-### Self-audit
-
-```sh
-npm run audit          # runs: tsx src/cli/index.ts analyze .
-```
-
-### False-positive benchmark
-
-```sh
-npm run bench          # planted issues must be found; field-tested FP traps must stay silent
-```
-
-A reproducible corpus (see `benchmarks/cases.ts`) that fails CI on any precision/recall
-regression — coverage gained at the cost of noise never merges. **n = 28 cases**: 14 planted
-issues that must be found and 14 false-positive traps that must stay silent, each trap a
-mistake PRISM actually made on a real project (7 cases need semgrep or OSV.dev and are skipped,
-loudly, when unavailable). A green run means "no regression on those 28", nothing more.
-
-### AI-triage benchmark
-
-```sh
-npm run bench:ai                  # live model from ANTHROPIC_API_KEY / OPENROUTER_API_KEY
-npm run bench:ai -- --dry-run     # exercise the corpus offline, zero cost
-npm run bench:ai -- --vote a,b    # measure a verification panel
-```
-
-The static benchmark measures the rules; this one measures the **judge**. Every case in
-`benchmarks/ai/cases.ts` is a finding the static layer really emits, paired with the verdict a
-careful reviewer reaches — genuine issues the model must not excuse (including the two judgment
-errors seen in the field), same-file false positives it should catch, and cross-file false
-positives whose evidence lives in another module (reported separately, as the baseline for
-cross-file context). The run hard-fails only when a **real issue is excused as a false positive**
-— the one outcome that hides risk; missed false positives and `uncertain` verdicts are reported as
-rates. It needs a key and a live model, so it runs before releases, not on every push; the
-corpus itself is health-checked offline in the test suite so a case can never rot unnoticed.
-**n = 17 cases**: 11 genuine issues, 3 same-file false positives, 3 cross-file false positives.
-Last live run (claude-opus-4-8): 17/17, 0 real issues excused. Seventeen is a signal, not a
-statistic — the corpus grows with every field false positive or false negative, and so should
-your reading of these numbers.
-
----
-
-## Language & platform support
-
-PRISM inspects some ecosystems deeply and others only at the metadata level. The score reflects
-**what PRISM understands** — a high score on an unsupported stack means "nothing wrong in what
-was inspected", not "deep audit passed":
-
-| Area | Support |
-|---|---|
-| TypeScript / JavaScript | **Full** — all ten analyzers, import graph, dead-file and cycle detection, taint analysis (with semgrep) |
-| Python | Partial — dependencies (`requirements.txt` pinning, OSV.dev advisories), basic structure, decorative/skipped tests, taint analysis (with semgrep), and the agentic checks in their Python shapes: `os.system`/`subprocess … shell=True` with f-strings (`AGT-001`), env secrets and external content in f-string/`.format()` prompts (`AGT-002`/`AGT-004`), destructive tools without `requires_confirmation` (`AGT-003`), `except` handlers that fail open (`AGT-006`). No import graph or dead-file analysis for Python yet |
-| Rust / Go / PHP / Ruby | Dependencies — known-vulnerability check of `Cargo.lock`, `go.mod`, `composer.lock`, `Gemfile.lock` via OSV.dev |
-| Docker / Compose | Full — Dockerfile and docker-compose checks |
-| GitHub Actions | Full — workflow risk analysis cross-checked against the repo (other CI systems: not yet) |
-| Secrets / entropy | Language-agnostic — any text file |
-| Monorepos | Partial — analyzed as one tree; per-package scoring not yet separated |
-| Dynamic imports | Limited — `import()` with non-literal arguments is not resolved in the graph |
-| Generated / vendored code | Excluded by the file-context classifier |
-| Other languages (Rust, Java, Go…) | Metadata and structure only — no language-aware analysis |
-
----
-
-## Roadmap
-
-| Phase | Status | Description |
-|---|---|---|
-| **Fase 1** — Static analysis CLI | **Done** | 7 analyzers, weighted scoring, JSON/CLI output, CI exit codes |
-| **Fase 2** — LLM triage | **Done** | `--ai`: triage + adversarial re-check + N-model vote, remediation guide, executive summary, standalone `triage` |
-| **Fase 3** — Reports & outputs | **Done** | Self-contained HTML, JUnit XML, SARIF 2.1.0 |
-| **Fase 4** — Dashboard + multi-input | **Done** | Local dashboard, git URL input, `.zip` input |
-| **Fase 5** — Agent-ready | **Done (v1.0.0)** | Exit-code contract, `diff`, `finding get`, `agent install`, quality/new-code gates |
-| **Fase 6** — Persistent config | **Done** | `prism.config.json` + `prism init` wizard, justified suppressions with reasons and expiry |
-| **Fase 7** — Quality flywheel | **Done** | Public rule catalog (sync-tested), reproducible FP benchmark in CI, agentic checks AGT-003..006 |
-| **Fase 8** — Workflow Intelligence | **Done (v1.2.0)** | GitHub Actions analyzer (`WFL-*`): pwn requests, script injection, dead triggers, fail-open gates — cross-checked against the real repo |
-| **Fase 9** — Security depth | **Done (v1.4.0)** | Curated semgrep taint pack (`SG-*`: SQLi/XSS/SSRF/traversal/deserialization), multi-ecosystem SCA via OSV.dev (`DEP-OSV-*`), CWE/OWASP Top 10 mapping with SARIF tags |
-| **Fase 10** — AI layer: cheap, measured, with sight | **Done (v1.6.0)** | Context tiers per rule, verdict cache (resume for free), import-graph neighborhood for cross-file evidence, AI-triage benchmark that measures the judge |
-| **Next** | Planned | Python parity for the agentic checks (`subprocess`/f-string shell, f-string prompts, `except` fail-open); risk chains (findings that connect into one attack path, verified in the graph); more CI systems (GitLab CI); finding lifecycle / quality profiles |
-
----
+| **Security** | 2.0× | Secrets, committed `.env`, entropy; taint dataflow (SQLi/XSS/SSRF/traversal/deserialization) via a curated [semgrep](https://semgrep.dev) pack, when installed |
+| **Agentic** | 1.5× | Shell injection in tools, secrets and external content in prompts, destructive tools without confirmation, public MCP binds, fail-open gates — JS/TS and Python |
+| **Workflow** | 1.0× | GitHub Actions: pwn requests, script injection, unpinned actions, permissions, triggers on branches that don't exist, fail-open gates |
+| **Docker** | 1.0× | Root, `:latest`, no healthcheck, privileged, hardcoded credentials, ports on all interfaces per service, the Docker socket mounted |
+| **Dependencies** | 1.5× | Lockfile, wildcards, `npm audit`, OSV.dev for Python/Rust/Go/PHP/Ruby lockfiles |
+| **Tests** | 1.5× | Decorative tests, disconnected tests, skipped accumulation, snapshot overuse, ratio |
+| **Structure** | 1.0× | God files, import cycles, dead files, layout hygiene |
+| **Consistency** | 0.8× | Mixed naming, mixed natural languages, mixed indentation |
+
+Security rules map to **CWE / OWASP Top 10** and SARIF feeds GitHub Code Scanning. The full
+catalog — every id, severity and its known traps — is in [docs/rules/](docs/rules/README.md), and
+a test fails CI if a rule ships undocumented.
+
+## What it is, and is not
+
+**It is** about a hundred curated, deterministic checks plus an optional adversarial LLM layer
+that reads the flagged code and the modules it imports. **It is not** a replacement for semgrep,
+CodeQL or Snyk: deep dataflow is a wrapped semgrep pack, and the depth is theirs. PRISM's own
+ground is the agentic and workflow rules, the cross-checks against the real repository, the
+integrated score, and the judge.
+
+**Status:** 1.x, one maintainer, field-tested on real agent codebases and CI pipelines. The
+report schema and the config file can still change between minor versions — the
+[CHANGELOG](CHANGELOG.md) lists every change. Python is partial and most other languages are
+metadata only; read the [support matrix](docs/SUPPORT.md) before trusting a score on a stack
+PRISM only partially understands.
+
+## Documentation
+
+- [Usage](docs/USAGE.md) — every command and flag, `prism.config.json`, suppressions, scoring, development
+- [AI triage](docs/AI-TRIAGE.md) — the adversarial judge, context tiers, the verdict cache, cross-file evidence
+- [Rule catalog](docs/rules/README.md) — all rules with severities and false-positive notes
+- [Support matrix & roadmap](docs/SUPPORT.md) — what is inspected deeply, what only at the metadata level
+- [Architecture](docs/ARCHITECTURE.md) — the pipeline, the trust boundaries, the scoring doctrine
+- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 
 ## License
 

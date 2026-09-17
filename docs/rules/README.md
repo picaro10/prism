@@ -40,7 +40,7 @@ optional file pattern (gitignore syntax), a mandatory reason, and an optional ex
 ```
 
 Suppressed findings are removed from the score and the gates but stay listed in the output with
-their reasons. See the README's *Configuration file* section for the full semantics.
+their reasons. See [Usage → Configuration file](../USAGE.md#configuration-file) for the full semantics.
 
 ## Meta rules
 
