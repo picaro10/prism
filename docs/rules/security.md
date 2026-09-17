@@ -69,6 +69,11 @@ test-file findings step down one severity.
 
 ## False-positive notes (field-tested)
 
+- **Python docstring examples are documentation.** Inside a triple-quoted block, the generic
+  patterns (`SEC-PASSWORD`, `SEC-API-KEY`, `SEC-ENV-VALUE`) and the entropy check do not
+  fire: a `Usage:` example with `secret="..."` is not a pasted leak. Format-specific keys
+  (AWS, Stripe, GitHub, private keys) still fire there, because a real key in docs is still a leak.
+
 These distinctions came from real audits, not theory:
 
 - **`SEC-DB-URL` and placeholder credentials.** Connection strings whose *password* is a

@@ -201,9 +201,16 @@ export class SecretsAnalyzer implements Analyzer {
 
       {
         const lines = content.split('\n');
+        // Python docstrings hold usage EXAMPLES (`secret="..."` in a
+        // `Usage:` block) — documentation, not a pasted leak. Generic
+        // password/api-key/entropy matches are skipped there; format-specific
+        // keys (AWS, Stripe, GitHub, private keys) still fire: a real key in
+        // docs is still a leak. Field FP on a real Python agent framework.
+        const docstringLines = file.endsWith('.py') ? pythonDocstringLines(content) : EMPTY_LINE_SET;
 
         for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
           const line = lines[lineIdx];
+          const inDocstring = docstringLines.has(lineIdx + 1);
 
           // Skip comments (basic heuristic)
           const trimmed = line.trim();
@@ -219,6 +226,9 @@ export class SecretsAnalyzer implements Analyzer {
 
               // False positive check: is this a placeholder/example?
               if (isPlaceholderValue(line)) continue;
+
+              // A generic pattern inside a Python docstring is a documentation example.
+              if (inDocstring && DOCSTRING_EXEMPT_PATTERNS.has(pattern.id)) continue;
 
               // SEC-ENV-VALUE specifically fires on `KEY = "..."`; skip when the
               // value is a readable identifier (a storage/cache key NAME), not a
@@ -256,7 +266,7 @@ export class SecretsAnalyzer implements Analyzer {
           // --- High entropy string detection ---
           const highEntropyMatches = findHighEntropyStrings(line);
           for (const match of highEntropyMatches) {
-            if (isSafeFile(file) || isPlaceholderValue(line)) continue;
+            if (isSafeFile(file) || isPlaceholderValue(line) || inDocstring) continue;
 
             const entropyAdjusted = adjustSeverity('medium', effectiveContext);
             if (entropyAdjusted === null) continue;
@@ -320,6 +330,52 @@ function isSafeFile(filePath: string): boolean {
 function isSafeEnvFile(filePath: string): boolean {
   const name = basename(filePath);
   return name === '.env.example' || name === '.env.template' || name === '.env.sample';
+}
+
+const EMPTY_LINE_SET: ReadonlySet<number> = new Set();
+/** Generic patterns whose match inside a docstring is a usage example, not a leak. */
+const DOCSTRING_EXEMPT_PATTERNS = new Set(['SEC-PASSWORD', 'SEC-API-KEY', 'SEC-ENV-VALUE']);
+
+/**
+ * 1-based line numbers that fall inside a Python triple-quoted string
+ * (`"""` or `'''`), the opening and closing lines included. A single-line
+ * docstring (`"""x"""`) counts as one line. Deliberately simple: it
+ * does not try to tell a docstring from any other triple-quoted literal —
+ * both are far more often documentation/templates than pasted secrets.
+ */
+export function pythonDocstringLines(content: string): Set<number> {
+  const inside = new Set<number>();
+  const lines = content.split('\n');
+  const DQ = '"""';
+  const SQ = "'''";
+  let open: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let pos = 0;
+    let touched = false;
+    for (;;) {
+      // While inside a block only its own delimiter can close it; outside,
+      // whichever delimiter comes first opens a block.
+      let q: string;
+      let at: number;
+      if (open) {
+        q = open;
+        at = line.indexOf(q, pos);
+      } else {
+        const d = line.indexOf(DQ, pos);
+        const s = line.indexOf(SQ, pos);
+        if (d === -1 && s === -1) break;
+        q = d !== -1 && (s === -1 || d < s) ? DQ : SQ;
+        at = q === DQ ? d : s;
+      }
+      if (at === -1) break;
+      touched = true;
+      open = open ? null : q;
+      pos = at + 3;
+    }
+    if (open || touched) inside.add(i + 1);
+  }
+  return inside;
 }
 
 function isPlaceholderValue(line: string): boolean {

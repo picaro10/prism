@@ -199,6 +199,57 @@ describe('DockerAnalyzer — compose services: docker.sock (DOC-025) and per-ser
     expect(socks[0].description).toMatch(/read-only/i);
   });
 
+  it('recognizes a socket PROXY (by image or by name): low severity, its own title, verify-the-allowlist advice', async () => {
+    const compose = [
+      'services:',
+      '  docker-socket-proxy:',
+      '    image: tecnativa/docker-socket-proxy:0.3.0',
+      '    restart: unless-stopped',
+      '    environment:',
+      '      CONTAINERS: 1',
+      '      EXEC: 0',
+      '    volumes:',
+      '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+      '  guard:',
+      '    image: haproxy:2.9',
+      '    volumes:',
+      '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+      '  app:',
+      '    image: node:22',
+      '    volumes:',
+      '      - /var/run/docker.sock:/var/run/docker.sock',
+      '',
+    ].join('\n');
+    const r = await run(compose);
+    const socks = r.findings.filter((f) => f.id === 'DOC-025');
+    expect(socks).toHaveLength(3);
+    const byTitle = Object.fromEntries(socks.map((f) => [f.title.split(': ').pop(), f]));
+    // By image: the recommended pattern itself. Low, and it asks to check the allowlist.
+    expect(byTitle['docker-socket-proxy'].severity).toBe('low');
+    expect(byTitle['docker-socket-proxy'].title).toMatch(/socket proxy/i);
+    expect(byTitle['docker-socket-proxy'].suggestion).toMatch(/allowlist|EXEC/i);
+    // A generic image under a non-proxy name is the full critical.
+    expect(byTitle.guard.severity).toBe('critical');
+    expect(byTitle.app.severity).toBe('critical');
+    // Two criticals (-2 each) + one proxy (-0.2) + no restart on two services… score well below the proxy-only case.
+    const proxyOnly = await run(compose.split('  guard:')[0]);
+    expect(proxyOnly.findings.filter((f) => f.id === 'DOC-025')[0].severity).toBe('low');
+    expect(proxyOnly.score).toBeGreaterThan(r.score + 3);
+  });
+
+  it('recognizes a socket proxy by service NAME when the image is not a known proxy image', async () => {
+    const compose = [
+      'services:',
+      '  docker-proxy:',
+      '    image: internal/registry/socket-guard:1',
+      '    volumes:',
+      '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+      '',
+    ].join('\n');
+    const r = await run(compose);
+    expect(r.findings.filter((f) => f.id === 'DOC-025')[0].severity).toBe('low');
+  });
+
   it('does NOT flag other sockets, commented-out mounts, or a docker.sock mentioned outside a mount', async () => {
     const compose = [
       'services:',

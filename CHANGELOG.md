@@ -25,6 +25,20 @@ All notable changes to PRISM are documented here. The format is based on
   real agent, fixed before the rule shipped).
 
 ### Fixed
+- **`DOC-025` treated a Docker socket proxy like an application mount.** A
+  service whose image or name says `socket-proxy` / `docker-proxy` is the
+  recommended pattern itself; it now fires at low with its own title and a
+  "verify the allowlist" suggestion instead of critical. Field: a framework
+  with five correctly allowlisted proxies was getting five criticals.
+- **Secrets: Python docstring usage examples are no longer leaks.** Inside
+  triple-quoted blocks the generic patterns (`SEC-PASSWORD`, `SEC-API-KEY`,
+  `SEC-ENV-VALUE`) and the entropy check are skipped; format-specific keys
+  still fire. Field: `secret="..."` in a `Usage:` docstring reported as a
+  hardcoded password.
+- **Scanner: nested `.gitignore` files are honored.** Only the root file was
+  read; a `sub/.gitignore` excluding a local secrets config was ignored and
+  the file was scanned and flagged. Nested patterns are rewritten with git
+  semantics (anchored, relative, negated) and take precedence over the root's.
 - **Verdict cache: a false positive stored under `--no-ai-verify` could be
   served to a run that verifies.** The cache key now carries whether the
   skeptical pass ran (`|noverify` in the judge identity); an unverified FP is

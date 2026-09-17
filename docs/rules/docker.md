@@ -37,3 +37,9 @@ A project with no Docker configuration scores 10/10 here — absence isn't a def
   flagged: the fix is a socket proxy exposing only the calls they need, and the decision
   belongs in a justified suppression, not in silence. Found in the field on a production
   compose that PRISM had passed clean.
+- **`DOC-025` knows what a socket proxy is.** A service whose image or name says
+  `socket-proxy` / `docker-proxy` (tecnativa/docker-socket-proxy and friends) is the
+  recommended pattern itself: it fires at **low** with its own title and asks you to verify
+  the allowlist (`CONTAINERS=1`, `EXEC=0`, ...) and that only the intended services reach it.
+  Found in the field on a framework with five correctly allowlisted proxies that was getting
+  five criticals for doing the right thing.

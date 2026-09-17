@@ -318,6 +318,32 @@ export const CASES: BenchCase[] = [
     expect: { 'docker-compose.yml': [] },
   },
   {
+    name: 'trap-python-docstring-usage-example',
+    categories: ['security'],
+    // A `Usage:` example inside a docstring is documentation, not a pasted
+    // secret (field FP on a real Python agent framework). A format-specific
+    // key would still fire; a generic `secret="..."` example must not.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'pkg/webhooks.py': [
+        'class WebhookTrigger:',
+        '    """Register a webhook trigger.',
+        '',
+        '    Usage:',
+        '        trigger = WebhookTrigger(',
+        '            name="deploy-done",',
+        `            secret="${join('whsec_docs_', '9f8e7d6c5b4a')}",`,
+        '        )',
+        '    """',
+        '',
+        '    def __init__(self, name: str, secret: str) -> None:',
+        '        self.secret = secret',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'pkg/webhooks.py': [] },
+  },
+  {
     name: 'tp-messaging-text-in-prompt',
     categories: ['agentic'],
     files: {

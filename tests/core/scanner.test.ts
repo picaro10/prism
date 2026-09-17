@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { resolve, join } from 'node:path';
 import { mkdtemp, mkdir, writeFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { scanProject } from '../../src/core/scanner.js';
+import { scanProject, nestedIgnorePatterns } from '../../src/core/scanner.js';
 
 const FIXTURE_PATH = resolve(__dirname, '../fixtures/sample-project');
 
@@ -151,5 +151,50 @@ describe('scanProject', () => {
     const scan = await scanProject(root, { maxFiles: 1 });
     expect(scan.files.length).toBe(1);
     expect(scan.scanWarnings?.truncated).toBe(true);
+  });
+
+  describe('nested .gitignore files', () => {
+    it('nestedIgnorePatterns rewrites patterns relative to their directory with git semantics', () => {
+      const out = nestedIgnorePatterns(
+        'sub/dir',
+        ['*.log', '/only-here', 'build/', 'a/b', '!keep.log', '# comment', ''].join('\n'),
+      );
+      expect(out).toEqual([
+        'sub/dir/**/*.log',
+        'sub/dir/only-here',
+        'sub/dir/**/build/',
+        'sub/dir/a/b',
+        '!sub/dir/**/keep.log',
+      ]);
+    });
+
+    it('honors a .gitignore inside a subdirectory (the file it excludes is not inventoried)', async () => {
+      const root = await makeProject({
+        'src/index.ts': 'export const x = 1;',
+        'mcp/.gitignore': '# local config with secrets\n.mcp.json\n',
+        'mcp/.mcp.json': '{"JWT_SECRET":"x"}',
+        'mcp/server.ts': 'export const s = 1;',
+        '.mcp.json': '{"root":"level file, not covered by the nested rule"}',
+      });
+      const scan = await scanProject(root);
+      expect(scan.files).not.toContain('mcp/.mcp.json');
+      expect(scan.files).toContain('mcp/server.ts');
+      expect(scan.files).toContain('.mcp.json'); // the nested rule does not reach the root
+    });
+
+    it('anchored patterns apply only at that directory; negations re-include', async () => {
+      const root = await makeProject({
+        'pkg/.gitignore': '/generated\n*.log\n!keep.log\n',
+        'pkg/generated': 'x',
+        'pkg/deep/generated': 'y',
+        'pkg/a.log': 'l',
+        'pkg/keep.log': 'k',
+      });
+      const scan = await scanProject(root);
+      expect(scan.files).not.toContain('pkg/generated');
+      expect(scan.files).toContain('pkg/deep/generated');
+      expect(scan.files).not.toContain('pkg/a.log');
+      expect(scan.files).toContain('pkg/keep.log');
+    });
   });
 });

@@ -15,6 +15,30 @@ import type { ProjectScan, ProjectMeta, DetectedStack, FileNode } from './types.
  */
 export const MAX_SCAN_FILES = 100_000;
 
+/**
+ * Rewrite the patterns of a NESTED .gitignore (living in `dir`, project-
+ * relative POSIX) so they mean the same thing from the project root, per git
+ * semantics: a pattern with no slash (or only a trailing one) matches at any
+ * depth below `dir`; a leading slash anchors it to `dir`; a slash anywhere
+ * else makes it relative to `dir`. Negations keep their `!`. Comments and
+ * blank lines are dropped. Exported for tests.
+ */
+export function nestedIgnorePatterns(dir: string, content: string): string[] {
+  const out: string[] = [];
+  for (const raw of content.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
+    const negated = line.startsWith('!');
+    const p = negated ? line.slice(1) : line;
+    let rewritten: string;
+    if (p.startsWith('/')) rewritten = `${dir}/${p.slice(1)}`;
+    else if (p.slice(0, -1).includes('/')) rewritten = `${dir}/${p}`;
+    else rewritten = `${dir}/**/${p}`;
+    out.push(negated ? `!${rewritten}` : rewritten);
+  }
+  return out;
+}
+
 /** Directories always excluded from scanning */
 const ALWAYS_IGNORE = [
   'node_modules',
@@ -140,6 +164,19 @@ async function walkDirectory(
     return [];
   }
   const nodes: FileNode[] = [];
+
+  // A .gitignore below the root applies to its own subtree, with precedence
+  // over the root's rules (later patterns win in `ignore`, matching git's
+  // deeper-file-wins). Loaded BEFORE this directory's entries are judged.
+  // The root .gitignore was loaded by scanProject.
+  if (currentPath !== rootPath && entries.some((e) => e.isFile() && e.name === '.gitignore')) {
+    try {
+      const relDir = relative(rootPath, currentPath).split(sep).join('/');
+      ig.add(nestedIgnorePatterns(relDir, await readFile(join(currentPath, '.gitignore'), 'utf-8')));
+    } catch {
+      // An unreadable nested .gitignore simply contributes no rules.
+    }
+  }
 
   for (const entry of entries) {
     if (collectedFiles.length >= maxFiles) {

@@ -10,6 +10,7 @@ import { shannonEntropy } from '../../src/utils/patterns.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProjectScan } from '../../src/core/types.js';
+import { pythonDocstringLines } from '../../src/analyzers/secrets.js';
 
 describe('hasPlaceholderDbCredentials (field-tested against orion_new)', () => {
   it('flags obvious placeholder credentials as NOT real secrets', () => {
@@ -157,5 +158,74 @@ describe('shannonEntropy', () => {
   it('returns low entropy for repetitive strings', () => {
     const entropy = shannonEntropy('aaabbbccc');
     expect(entropy).toBeLessThan(2);
+  });
+});
+
+describe('SecretsAnalyzer — Python docstring usage examples', () => {
+  const analyzer = new SecretsAnalyzer();
+  const scanWith = (files: string[]): ProjectScan => ({
+    rootPath: '/fake',
+    files,
+    fileTree: [],
+    meta: {
+      stack: { primary: 'python', secondary: [] },
+      totalLoc: 0,
+      totalFiles: files.length,
+      hasGit: true,
+      hasDocker: false,
+      hasCi: false,
+      frameworks: [],
+    },
+  });
+
+  it('pythonDocstringLines marks the lines inside triple-quoted blocks (both quote styles, multi-block)', () => {
+    const TQ = '"""';
+    const TS = "'''";
+    const src = [
+      'def f():',
+      `    ${TQ}Usage:`,
+      '        x = Thing(secret="not-a-real-secret-1")',
+      `    ${TQ}`,
+      '    secret = "real-value-outside-docstring"',
+      `    ${TS}another block`,
+      '    api_key = "inside-single-triple"',
+      `    ${TS}`,
+      '    return 1',
+    ].join('\n');
+    const inside = pythonDocstringLines(src);
+    expect([...inside].sort((a, b) => a - b)).toEqual([2, 3, 4, 6, 7, 8]);
+  });
+
+  it('does NOT flag a generic password example inside a Python docstring, but DOES flag the same line as code', async () => {
+    const TQ = '"""';
+    const withDoc = [
+      'class WebhookTrigger:',
+      `    ${TQ}Register a webhook trigger.`,
+      '',
+      '    Usage:',
+      '        trigger = WebhookTrigger(',
+      '            name="deploy-done",',
+      '            secret="whsec_docs_9f8e7d6c5b4a",',
+      '        )',
+      `    ${TQ}`,
+      '',
+      '    def __init__(self, name: str, secret: str) -> None:',
+      '        self.secret = secret',
+      '',
+    ].join('\n');
+    const r1 = await analyzer.analyze(scanWith(['aether/core/webhook_triggers.py']), async () => withDoc);
+    expect(r1.findings.filter((f) => f.id === 'SEC-PASSWORD')).toHaveLength(0);
+
+    const asCode = 'secret = "whsec_docs_9f8e7d6c5b4a"\n';
+    const r2 = await analyzer.analyze(scanWith(['aether/core/config.py']), async () => asCode);
+    expect(r2.findings.filter((f) => f.id === 'SEC-PASSWORD')).toHaveLength(1);
+  });
+
+  it('still flags a format-specific key (AWS) inside a docstring — a real key pasted into docs is still a leak', async () => {
+    const TQ = '"""';
+    const key = ['AKIA', 'ZZ9Q3K7M', '2P4R8T6V'].join(''); // 20 chars, no placeholder word
+    const src = ['def f():', `    ${TQ}Example:`, `        key = "${key}"`, `    ${TQ}`, ''].join('\n');
+    const r = await analyzer.analyze(scanWith(['pkg/mod.py']), async () => src);
+    expect(r.findings.some((f) => f.id === 'SEC-AWS-KEY')).toBe(true);
   });
 });

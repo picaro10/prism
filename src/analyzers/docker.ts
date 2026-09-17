@@ -313,6 +313,13 @@ function analyzeCompose(file: string, content: string): { findings: Finding[]; s
   const portAllInterfaces = /^\s*-\s*["']?(?:0\.0\.0\.0:)?\d+:\d+["']?\s*$/;
   const dockerSockShort = /^\s*-\s*["']?\/var\/run\/docker\.sock(?::|["']|\s*$)/;
   const dockerSockLong = /^\s*source:\s*["']?\/var\/run\/docker\.sock["']?\s*$/;
+  // A socket PROXY is the recommended way to expose the Docker API: it is the
+  // one service that legitimately mounts the socket, and it filters the API
+  // (tecnativa/docker-socket-proxy's CONTAINERS=1 / EXEC=0 allowlist). Seen in
+  // the field: five critical hits on a compose that did exactly this.
+  const images = composeServiceImages(lines);
+  const isSocketProxy = (svc: string) =>
+    /socket[-_]?proxy|docker[-_]?proxy/i.test(svc) || /socket[-_]?proxy/i.test(images.get(svc) ?? '');
   let portsPenalty = 0;
   const MAX_PORTS_PENALTY = 2.0;
   let service: string | null = null;
@@ -363,6 +370,21 @@ function analyzeCompose(file: string, content: string): { findings: Finding[]; s
 
     if ((dockerSockShort.test(l) || dockerSockLong.test(l)) && !sockFlagged.has(where)) {
       sockFlagged.add(where);
+      if (service && isSocketProxy(service)) {
+        findings.push({
+          id: 'DOC-025',
+          category: 'docker',
+          severity: 'low',
+          title: `Docker socket mounted in a socket proxy: ${where}`,
+          description: `${file}:${i + 1}: service '${where}' is a Docker socket proxy — the recommended way to expose the Docker API. Its safety is entirely in its allowlist: anything it forwards, every consumer of the proxy can do on the host.`,
+          file,
+          line: i + 1,
+          suggestion:
+            'Verify the allowlist is minimal (e.g. CONTAINERS=1 and everything else 0 — no EXEC, no POST unless required), that the proxy is not published on a host port, and that only the intended services reach it on an internal network.',
+        });
+        scoreDelta -= 0.2;
+        continue;
+      }
       findings.push({
         id: 'DOC-025',
         category: 'docker',
@@ -379,6 +401,35 @@ function analyzeCompose(file: string, content: string): { findings: Finding[]; s
   }
 
   return { findings, scoreDelta };
+}
+
+/** service name → image, for the compose checks that depend on what a service IS. */
+function composeServiceImages(lines: string[]): Map<string, string> {
+  const images = new Map<string, string>();
+  let inServices = false;
+  let serviceIndent: number | null = null;
+  let service: string | null = null;
+  for (const l of lines) {
+    if (/^\s*#/.test(l) || l.trim() === '') continue;
+    const top = /^([A-Za-z0-9_.-]+):\s*$/.exec(l);
+    if (top) {
+      inServices = top[1] === 'services';
+      serviceIndent = null;
+      service = null;
+      continue;
+    }
+    if (!inServices) continue;
+    const indent = l.length - l.trimStart().length;
+    if (serviceIndent === null) serviceIndent = indent;
+    const svc = indent === serviceIndent ? /^\s*([A-Za-z0-9_.-]+):\s*$/.exec(l) : null;
+    if (svc) {
+      service = svc[1];
+      continue;
+    }
+    const img = /^\s*image:\s*["']?([^"'\s]+)/.exec(l);
+    if (img && service) images.set(service, img[1]);
+  }
+  return images;
 }
 
 function buildSummary(dockerfileCount: number, composeCount: number, findings: Finding[], readErrors: number): string {

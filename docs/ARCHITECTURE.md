@@ -7,7 +7,8 @@ doctrine behind the scoring — not a tour of every file.
 ## Audit pipeline (`src/core/engine.ts` — `runAudit`)
 
 1. **Scan** (`src/core/scanner.ts`) — walk the target tree respecting
-   `.gitignore` (plus a fixed always-ignore list: `node_modules`, `.git`,
+   `.gitignore` — the root one and every nested one, rewritten with git
+   semantics (plus a fixed always-ignore list: `node_modules`, `.git`,
    `dist`, …), build a flat file list + tree, detect language/framework.
    Bounded: `MAX_SCAN_FILES` (100,000) caps the inventory so a pathological
    tree can't spin the walker unbounded; a capped scan sets
