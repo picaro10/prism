@@ -6,6 +6,21 @@
 
 **The complete auditor for AI-written code — security, quality, structure, and the pipelines that ship it.**
 
+> **What it is.** About a hundred curated, deterministic checks — secrets, AI-agent and CI/CD
+> risks, Docker, dependencies, tests, structure — plus an optional adversarial LLM triage layer
+> that reads the flagged code *and the files it imports* to kill the false positives static
+> tools are famous for. Every rule ships with the false-positive traps it was tested against.
+>
+> **What it is not.** A replacement for semgrep, CodeQL or Snyk. Deep dataflow is a curated
+> semgrep pack, wrapped; the depth is theirs. What is PRISM's own is the agentic and workflow
+> rules, the cross-checks against the real repository, the integrated score, and the judge.
+>
+> **Status.** 1.x, one maintainer, field-tested on real agent codebases and CI pipelines. The
+> report JSON schema and the config file can still change between minor versions — the
+> [CHANGELOG](CHANGELOG.md) lists every change. Read the
+> [support matrix](#language--platform-support) before trusting a score on a stack PRISM only
+> partially understands: Python is partial, most other languages are metadata only.
+
 PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) built for the codebases the agentic
 era actually produces: fast-growing, largely AI-written, wired to agent tools and CI pipelines that
 deploy on every push. It scans a local codebase and produces a scored audit report across eight
@@ -44,9 +59,9 @@ tools are famous for. Both are shipped and working today, and PRISM audits itsel
 | **Dependencies** | 1.5× | Lock file presence; wildcard versions (`*`, `^`, `~` in sensitive positions); `npm audit` vulnerabilities; Python `requirements.txt` unpinned versions; `engines` field. Plus **multi-ecosystem SCA via [OSV.dev](https://osv.dev)**: known vulnerabilities in `poetry.lock`, `Pipfile.lock`, `Cargo.lock`, `go.mod`, `composer.lock` and `Gemfile.lock` (`DEP-OSV-*`). |
 | **Tests** | 1.5× | Test suite existence; test-to-source ratio; decorative tests (zero assertions in entire file); empty test files; skipped/disabled tests; snapshot overuse; tests with no SUT import. |
 | **Structure** | 1.0× | README, `.gitignore`, linter config, `tsconfig`; flat-root dumps; excessive nesting; god files (`STR-011`: >400 / >600 / >900 / >1500 LOC with tiered severity); circular import dependencies (`STR-012`, via Tarjan SCC on the resolved import graph); dead files (`STR-013`: TS/JS source nothing reaches — counts type-only imports, tsconfig aliases, package.json refs, path strings in code/HTML/Dockerfiles/shell, shebang and convention entries; skips itself if a tsconfig is unparseable). |
-| **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0`. |
+| **Docker** | 1.0× | Container running as root; no multi-stage build; `:latest` tag; missing `.dockerignore`; missing `HEALTHCHECK`; `docker-compose` privileged mode, hardcoded credentials, missing restart policy, missing resource limits, ports bound to `0.0.0.0` (per service), and the Docker socket mounted into a container (`DOC-025`, critical — recognizes a socket proxy and asks for its allowlist instead). |
 | **Consistency** | 0.8× | Mixed file-naming conventions (kebab/snake/camel/pascal) within the same language; mixed natural language (Spanish + English identifiers in the same file); inconsistent indentation (tabs vs spaces). |
-| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell injection in agent tools (`AGT-001`), secrets (`AGT-002`) and external content (`AGT-004`) in LLM prompts, destructive tools without confirmation (`AGT-003`), public MCP binds (`AGT-005`), fail-open security gates (`AGT-006`). High-signal and conservative by design. |
+| **Agentic** | 1.5× | AI-agent-specific risks that mainstream analyzers don't model: shell injection in agent tools (`AGT-001`), secrets (`AGT-002`) and external content (`AGT-004`) in LLM prompts, destructive tools without confirmation (`AGT-003`), public MCP binds (`AGT-005`), fail-open security gates (`AGT-006`). External content includes fetched pages, request bodies, e-mail and chat-message text (Telegram/Slack-style handlers). High-signal and conservative by design; the shell and prompt patterns are JS/TS-shaped today (see the support matrix). |
 | **Workflow** | 1.0× | GitHub Actions risks — pwn requests (`pull_request_target` + PR-head checkout), script injection from event data, unpinned third-party actions, missing/over-broad permissions, triggers filtering nonexistent branches (a CI that never runs), fail-open gates, missing timeouts/concurrency/caching. Cross-checked against the real repository, not just the YAML. |
 
 The overall score is a weighted average of per-category scores, each on a 0–10 scale. It is a
@@ -569,7 +584,7 @@ npm run test:watch     # vitest watch mode
 npm run test:coverage  # with coverage report
 ```
 
-The test suite has 600+ tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
+The test suite has 700+ tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
 
 ### Lint
 
@@ -591,7 +606,10 @@ npm run bench          # planted issues must be found; field-tested FP traps mus
 ```
 
 A reproducible corpus (see `benchmarks/cases.ts`) that fails CI on any precision/recall
-regression — coverage gained at the cost of noise never merges.
+regression — coverage gained at the cost of noise never merges. **n = 28 cases**: 14 planted
+issues that must be found and 14 false-positive traps that must stay silent, each trap a
+mistake PRISM actually made on a real project (7 cases need semgrep or OSV.dev and are skipped,
+loudly, when unavailable). A green run means "no regression on those 28", nothing more.
 
 ### AI-triage benchmark
 
@@ -610,6 +628,10 @@ cross-file context). The run hard-fails only when a **real issue is excused as a
 — the one outcome that hides risk; missed false positives and `uncertain` verdicts are reported as
 rates. It needs a key and a live model, so it runs before releases, not on every push; the
 corpus itself is health-checked offline in the test suite so a case can never rot unnoticed.
+**n = 17 cases**: 11 genuine issues, 3 same-file false positives, 3 cross-file false positives.
+Last live run (claude-opus-4-8): 17/17, 0 real issues excused. Seventeen is a signal, not a
+statistic — the corpus grows with every field false positive or false negative, and so should
+your reading of these numbers.
 
 ---
 
@@ -622,7 +644,7 @@ was inspected", not "deep audit passed":
 | Area | Support |
 |---|---|
 | TypeScript / JavaScript | **Full** — all ten analyzers, import graph, dead-file and cycle detection, taint analysis (with semgrep) |
-| Python | Partial — dependencies (`requirements.txt` pinning, OSV.dev advisories), basic structure, and taint analysis (with semgrep) |
+| Python | Partial — dependencies (`requirements.txt` pinning, OSV.dev advisories), basic structure, decorative/skipped tests, taint analysis (with semgrep), and the agentic checks that read tool definitions (destructive tools without confirmation). Shell-injection and prompt-injection patterns are JS/TS-shaped today: `subprocess`/f-string forms are not yet recognized, so a quiet agentic category on Python can mean "clean" or "not looked at" |
 | Rust / Go / PHP / Ruby | Dependencies — known-vulnerability check of `Cargo.lock`, `go.mod`, `composer.lock`, `Gemfile.lock` via OSV.dev |
 | Docker / Compose | Full — Dockerfile and docker-compose checks |
 | GitHub Actions | Full — workflow risk analysis cross-checked against the repo (other CI systems: not yet) |
@@ -647,7 +669,8 @@ was inspected", not "deep audit passed":
 | **Fase 7** — Quality flywheel | **Done** | Public rule catalog (sync-tested), reproducible FP benchmark in CI, agentic checks AGT-003..006 |
 | **Fase 8** — Workflow Intelligence | **Done (v1.2.0)** | GitHub Actions analyzer (`WFL-*`): pwn requests, script injection, dead triggers, fail-open gates — cross-checked against the real repo |
 | **Fase 9** — Security depth | **Done (v1.4.0)** | Curated semgrep taint pack (`SG-*`: SQLi/XSS/SSRF/traversal/deserialization), multi-ecosystem SCA via OSV.dev (`DEP-OSV-*`), CWE/OWASP Top 10 mapping with SARIF tags |
-| **Next** | Planned | Grow the semgrep rule pack from field findings, more agentic rules, finding lifecycle / quality profiles, more CI systems (GitLab CI) |
+| **Fase 10** — AI layer: cheap, measured, with sight | **Done (v1.6.0)** | Context tiers per rule, verdict cache (resume for free), import-graph neighborhood for cross-file evidence, AI-triage benchmark that measures the judge |
+| **Next** | Planned | Python parity for the agentic checks (`subprocess`/f-string shell, f-string prompts, `except` fail-open); risk chains (findings that connect into one attack path, verified in the graph); more CI systems (GitLab CI); finding lifecycle / quality profiles |
 
 ---
 

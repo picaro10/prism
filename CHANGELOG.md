@@ -57,6 +57,14 @@ All notable changes to PRISM are documented here. The format is based on
   Two `none`-tier real cases join the AI benchmark so that path is measured.
 
 ### Changed
+- **README says what PRISM is and is not, and how big its evidence is.** A
+  new opening states the scope (about a hundred curated deterministic checks
+  plus adversarial AI triage; not a replacement for semgrep/CodeQL/Snyk), the
+  status (1.x, one maintainer, schema may change between minors), and the
+  `n` of each benchmark next to its numbers (static: 28 cases, 14 planted +
+  14 traps; AI: 17 cases). The Python row of the support matrix now says
+  which agentic patterns are JS/TS-shaped, so a quiet agentic category on
+  Python is read as "not looked at", not "clean". Roadmap gains Fase 10.
 - **`DOC-024` fires once per service, not once per file**, and names the
   service. A dev compose with two published services used to report one. An
   explicit `0.0.0.0:` prefix counts like a bare mapping. The per-file penalty
