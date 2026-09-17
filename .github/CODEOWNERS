@@ -1,0 +1,18 @@
+# Every path defaults to the current maintainer. This file exists so that
+# the moment a second maintainer joins, GitHub can enforce "no unreviewed
+# merges into the trust-boundary code" (branch protection → require review
+# from code owners) without anyone having to remember to turn it on file by
+# file. Until there is a second person, this is a no-op by construction —
+# add reviewers here as they come on, especially for the paths below.
+
+*                               @picaro10
+
+# Trust-boundary code: untrusted input (git URLs, zips, saved reports,
+# subprocess invocation) is handled here. A regression is a security bug,
+# not a quality one — flag these paths for extra scrutiny first.
+/src/core/input.ts             @picaro10
+/src/utils/git-safe.ts         @picaro10
+/src/utils/safe-read.ts        @picaro10
+/src/dashboard/server.ts       @picaro10
+/src/cli/shared.ts             @picaro10
+/src/analyzers/semgrep.ts      @picaro10

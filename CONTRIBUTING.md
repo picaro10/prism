@@ -3,6 +3,11 @@
 Thanks for your interest in PRISM, an open-source project by
 [LatenciaTech](https://latenciatech.com). Contributions are welcome.
 
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first — it's the audit
+pipeline, the trust-boundary modules, and the scoring doctrine in one page,
+so you're not reverse-engineering intent from commit history. Found a
+security issue instead of a feature to add? See [SECURITY.md](SECURITY.md).
+
 ## Development setup
 
 ```sh
