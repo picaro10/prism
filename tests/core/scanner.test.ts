@@ -115,4 +115,41 @@ describe('scanProject', () => {
     await chmod(join(root, 'locked'), 0o755); // restore so cleanup can remove it
     expect(scan.files).toContain('src/index.ts');
   });
+
+  it('caps the file inventory at maxFiles and flags scanWarnings.truncated', async () => {
+    const root = await makeProject({
+      'a.ts': 'export const a = 1;',
+      'b.ts': 'export const b = 1;',
+      'c.ts': 'export const c = 1;',
+      'd.ts': 'export const d = 1;',
+      'e.ts': 'export const e = 1;',
+    });
+    const scan = await scanProject(root, { maxFiles: 3 });
+    expect(scan.files.length).toBe(3);
+    expect(scan.meta.totalFiles).toBe(3);
+    expect(scan.scanWarnings?.truncated).toBe(true);
+  });
+
+  it('does not flag truncated when the tree fits within maxFiles', async () => {
+    const root = await makeProject({
+      'a.ts': 'export const a = 1;',
+      'b.ts': 'export const b = 1;',
+    });
+    const scan = await scanProject(root, { maxFiles: 10 });
+    expect(scan.files.length).toBe(2);
+    expect(scan.scanWarnings).toBeUndefined();
+  });
+
+  it('resolves without hanging on a tree deeper than the cap (bounded recursion)', async () => {
+    // Cap hit inside a nested directory: siblings after it must short-circuit
+    // (return immediately) instead of walking their own subtrees to completion.
+    const root = await makeProject({
+      'dir1/a.ts': 'export const a = 1;',
+      'dir1/b.ts': 'export const b = 1;',
+      'dir2/nested/deep/c.ts': 'export const c = 1;',
+    });
+    const scan = await scanProject(root, { maxFiles: 1 });
+    expect(scan.files.length).toBe(1);
+    expect(scan.scanWarnings?.truncated).toBe(true);
+  });
 });

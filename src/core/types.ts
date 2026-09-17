@@ -151,12 +151,13 @@ export interface ProjectScan {
   /** Detected metadata */
   meta: ProjectMeta;
   /**
-   * Coverage the walk could NOT achieve: directories it could not read (EACCES)
-   * and files it could not stat. These entries are absent from `files`, so
-   * `files`/`totalFiles` undercount silently unless this is surfaced — an
-   * unreadable `src/` must not read as a small, clean project.
+   * Coverage the walk could NOT achieve: directories it could not read (EACCES),
+   * files it could not stat, and whether the inventory was cut off at the file
+   * cap. These entries are absent from `files`, so `files`/`totalFiles`
+   * undercount silently unless this is surfaced — an unreadable `src/`, or a
+   * tree bigger than the cap, must not read as a small, clean project.
    */
-  scanWarnings?: { unreadableDirs: number; unstatableFiles: number };
+  scanWarnings?: { unreadableDirs: number; unstatableFiles: number; truncated?: boolean };
 }
 
 export interface FileNode {

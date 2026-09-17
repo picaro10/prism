@@ -6,6 +6,15 @@ import ignore from 'ignore';
 import { classifyFile, isExcludedContext } from '../utils/file-context.js';
 import type { ProjectScan, ProjectMeta, DetectedStack, FileNode } from './types.js';
 
+/**
+ * Hard cap on files inventoried. A hostile or merely pathological tree
+ * (a monorepo with millions of entries, or someone pointing PRISM at a whole
+ * disk) must not spin the walker unbounded or hand every downstream analyzer
+ * (secrets, semgrep, OSV) an unbounded per-file read/scan workload. Generous
+ * for any real codebase — same doctrine as MAX_ZIP_ENTRIES in input.ts.
+ */
+export const MAX_SCAN_FILES = 100_000;
+
 /** Directories always excluded from scanning */
 const ALWAYS_IGNORE = [
   'node_modules',
@@ -68,7 +77,8 @@ const FRAMEWORK_INDICATORS: Record<string, (files: string[]) => boolean> = {
  * Scans a project directory and produces a ProjectScan
  * with file listing, metadata, and tree structure.
  */
-export async function scanProject(rootPath: string): Promise<ProjectScan> {
+export async function scanProject(rootPath: string, opts: { maxFiles?: number } = {}): Promise<ProjectScan> {
+  const maxFiles = opts.maxFiles ?? MAX_SCAN_FILES;
   const ig = ignore();
 
   // Load .gitignore if present
@@ -83,8 +93,8 @@ export async function scanProject(rootPath: string): Promise<ProjectScan> {
 
   // Collect all files
   const files: string[] = [];
-  const warnings = { unreadableDirs: 0, unstatableFiles: 0 };
-  const fileTree = await walkDirectory(rootPath, rootPath, ig, files, warnings);
+  const warnings = { unreadableDirs: 0, unstatableFiles: 0, truncated: false };
+  const fileTree = await walkDirectory(rootPath, rootPath, ig, files, warnings, maxFiles);
 
   // Detect stack
   const stack = detectStack(files);
@@ -96,7 +106,15 @@ export async function scanProject(rootPath: string): Promise<ProjectScan> {
     files,
     fileTree,
     meta,
-    ...(warnings.unreadableDirs > 0 || warnings.unstatableFiles > 0 ? { scanWarnings: warnings } : {}),
+    ...(warnings.unreadableDirs > 0 || warnings.unstatableFiles > 0 || warnings.truncated
+      ? {
+          scanWarnings: {
+            unreadableDirs: warnings.unreadableDirs,
+            unstatableFiles: warnings.unstatableFiles,
+            ...(warnings.truncated ? { truncated: true as const } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -105,8 +123,13 @@ async function walkDirectory(
   rootPath: string,
   ig: ReturnType<typeof ignore>,
   collectedFiles: string[],
-  warnings: { unreadableDirs: number; unstatableFiles: number },
+  warnings: { unreadableDirs: number; unstatableFiles: number; truncated: boolean },
+  maxFiles: number,
 ): Promise<FileNode[]> {
+  // Once the cap is hit, every remaining subtree short-circuits here instead
+  // of issuing another readdir — bounded by nesting depth, not file count.
+  if (warnings.truncated) return [];
+
   // An unreadable directory (EACCES) must not abort the whole scan — but it is
   // counted so the coverage gap is reported, not silently swallowed.
   let entries: Dirent[];
@@ -119,6 +142,10 @@ async function walkDirectory(
   const nodes: FileNode[] = [];
 
   for (const entry of entries) {
+    if (collectedFiles.length >= maxFiles) {
+      warnings.truncated = true;
+      break;
+    }
     const fullPath = join(currentPath, entry.name);
     // Normalize to POSIX separators at the source: every consumer (ignore
     // rules, .github/workflows/ prefixes, fixture classification, import
@@ -131,7 +158,7 @@ async function walkDirectory(
     if (ig.ignores(entry.isDirectory() ? `${relPath}/` : relPath)) continue;
 
     if (entry.isDirectory()) {
-      const children = await walkDirectory(fullPath, rootPath, ig, collectedFiles, warnings);
+      const children = await walkDirectory(fullPath, rootPath, ig, collectedFiles, warnings, maxFiles);
       nodes.push({
         name: entry.name,
         path: relPath,

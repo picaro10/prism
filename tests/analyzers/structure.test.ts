@@ -51,6 +51,14 @@ describe('StructureAnalyzer', () => {
     expect(result.summary.length).toBeGreaterThan(0);
   });
 
+  it('surfaces a truncated file inventory in the summary (coverage gap, not silent)', async () => {
+    const { scan, reader } = scanWithContent({ 'src/index.ts': 'export const x = 1;' });
+    scan.scanWarnings = { unreadableDirs: 0, unstatableFiles: 0, truncated: true };
+    const result = await analyzer.analyze(scan, reader);
+    expect(result.summary).toMatch(/coverage incomplete/i);
+    expect(result.summary).toMatch(/capped/i);
+  });
+
   it('all findings have required fields', async () => {
     const result = await runAnalysis();
 

@@ -1,5 +1,6 @@
 import type { Analyzer, AnalyzerResult, ProjectScan, FileReader, Finding, FileNode } from '../core/types.js';
 import { basename, extname } from 'node:path';
+import { MAX_SCAN_FILES } from '../core/scanner.js';
 import { classifyFile } from '../utils/file-context.js';
 import {
   countLoc,
@@ -398,10 +399,11 @@ function buildSummary(
   // the whole inventory (and every analyzer's view) undercounts. Say it here —
   // "clean" over an unreadable src/ is not clean.
   if (scan.scanWarnings) {
-    const { unreadableDirs, unstatableFiles } = scan.scanWarnings;
+    const { unreadableDirs, unstatableFiles, truncated } = scan.scanWarnings;
     const bits: string[] = [];
     if (unreadableDirs > 0) bits.push(`${unreadableDirs} unreadable director${unreadableDirs === 1 ? 'y' : 'ies'}`);
     if (unstatableFiles > 0) bits.push(`${unstatableFiles} unreadable file(s)`);
+    if (truncated) bits.push(`file inventory capped at ${MAX_SCAN_FILES.toLocaleString()} — the tree is larger`);
     if (bits.length > 0) parts.push(`coverage incomplete — ${bits.join(', ')} (not scanned)`);
   }
 
