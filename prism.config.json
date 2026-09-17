@@ -19,6 +19,26 @@
       "rule": "AGT-006",
       "file": "benchmarks/cases.ts",
       "reason": "Benchmark corpus: planted fail-open-gate sample lives inside a string literal"
+    },
+    {
+      "rule": "AGT-001",
+      "file": "benchmarks/ai/cases.ts",
+      "reason": "AI-triage benchmark corpus: the sample lives inside a string literal, materialized to a temp project at run time (same as benchmarks/cases.ts)"
+    },
+    {
+      "rule": "AGT-003",
+      "file": "benchmarks/ai/cases.ts",
+      "reason": "AI-triage benchmark corpus: the sample lives inside a string literal, materialized to a temp project at run time (same as benchmarks/cases.ts)"
+    },
+    {
+      "rule": "AGT-004",
+      "file": "benchmarks/ai/cases.ts",
+      "reason": "AI-triage benchmark corpus: the sample lives inside a string literal, materialized to a temp project at run time (same as benchmarks/cases.ts)"
+    },
+    {
+      "rule": "AGT-006",
+      "file": "benchmarks/ai/cases.ts",
+      "reason": "AI-triage benchmark corpus: the sample lives inside a string literal, materialized to a temp project at run time (same as benchmarks/cases.ts)"
     }
   ]
 }
