@@ -80,7 +80,9 @@ npm run lint && npx tsc --noEmit && npm run test:coverage && npm run build && np
 All six green locally = CI green (plus the package-smoke job, which verifies the packed
 tarball installs and runs). `npm run bench` is the false-positive benchmark: planted issues
 must be found, historical FP traps must stay silent — a rule change that regresses either
-direction fails before it dirties a real report.
+direction fails before it dirties a real report. `npm run bench:ai` measures the AI judge
+against `benchmarks/ai/cases.ts` (needs an API key; `--dry-run` exercises the corpus offline) —
+run it before a release or after touching anything under `src/ai/`.
 
 ## License
 

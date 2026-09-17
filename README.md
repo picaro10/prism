@@ -571,6 +571,24 @@ npm run bench          # planted issues must be found; field-tested FP traps mus
 A reproducible corpus (see `benchmarks/cases.ts`) that fails CI on any precision/recall
 regression — coverage gained at the cost of noise never merges.
 
+### AI-triage benchmark
+
+```sh
+npm run bench:ai                  # live model from ANTHROPIC_API_KEY / OPENROUTER_API_KEY
+npm run bench:ai -- --dry-run     # exercise the corpus offline, zero cost
+npm run bench:ai -- --vote a,b    # measure a verification panel
+```
+
+The static benchmark measures the rules; this one measures the **judge**. Every case in
+`benchmarks/ai/cases.ts` is a finding the static layer really emits, paired with the verdict a
+careful reviewer reaches — genuine issues the model must not excuse (including the two judgment
+errors seen in the field), same-file false positives it should catch, and cross-file false
+positives whose evidence lives in another module (reported separately, as the baseline for
+cross-file context). The run hard-fails only when a **real issue is excused as a false positive**
+— the one outcome that hides risk; missed false positives and `uncertain` verdicts are reported as
+rates. It needs a key and a live model, so it runs before releases, not on every push; the
+corpus itself is health-checked offline in the test suite so a case can never rot unnoticed.
+
 ---
 
 ## Language & platform support

@@ -16,6 +16,7 @@
     "lint:fix": "biome check --write src/ tests/",
     "audit": "tsx src/cli/index.ts analyze .",
     "bench": "tsx benchmarks/run-benchmark.ts",
+    "bench:ai": "tsx benchmarks/ai/run-ai-benchmark.ts",
     "prepublishOnly": "npm run lint && npm test && npm run build"
   },
   "overrides": {

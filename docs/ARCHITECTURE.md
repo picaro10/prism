@@ -117,3 +117,10 @@ that carry that boundary; changes here get the most scrutiny (see
 - Every new rule needs a benchmark case (`benchmarks/cases.ts`) — a planted
   true positive AND, where the rule class is known for false positives, a
   trap that must stay silent.
+- Changes to the AI layer (`src/ai/`, prompts, tiers, context) are measured
+  with `npm run bench:ai` against `benchmarks/ai/cases.ts`: findings the
+  static layer really emits, each with the verdict a careful reviewer
+  reaches. The gate is asymmetric on purpose — a real issue excused as a
+  false positive fails the run (hidden risk); a false positive kept as real
+  is reported (noise). Cross-file cases are the baseline the import-graph
+  context has to move.

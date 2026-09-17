@@ -6,6 +6,19 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **AI-triage benchmark (`npm run bench:ai`).** The static benchmark measures
+  the rules; this one measures the judge. 15 cases in `benchmarks/ai/cases.ts`
+  — findings the static layer really emits, each with the verdict a careful
+  reviewer reaches: 9 genuine issues the model must not excuse (including the
+  two field judgment errors: a disconnected test excused as "testing style",
+  a real 0.0.0.0 binding excused by citing another service), 3 same-file
+  false positives it should catch, 3 cross-file false positives whose
+  evidence lives in another module (reported as their own rate — the
+  baseline for cross-file context). Hard-fails only on a real issue excused
+  as a false positive; `--dry-run` exercises the corpus offline, and the test
+  suite health-checks every case's target finding so the corpus cannot rot.
+  First live run (claude-opus-4-8): 13/15 hits, 0 excused, 100% of same-file
+  FPs caught, 1 of 3 cross-file FPs caught.
 - **Context tiers for AI triage.** Every rule now declares how much code its
   triage needs (`CONTEXT_TIER` in `src/core/rule-metadata.ts`): `none` for
   rules whose evidence is a project-level fact (god files, import cycles,
