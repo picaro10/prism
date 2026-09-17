@@ -3,6 +3,28 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [Unreleased]
+
+### Added
+- **File-inventory cap in the scanner.** `MAX_SCAN_FILES` (100,000) bounds the
+  directory walk so a pathological or hostile tree (a monorepo with millions of
+  entries, a whole disk) cannot spin the walker or hand every analyzer an
+  unbounded workload — same doctrine as `MAX_ZIP_ENTRIES`. Hitting the cap sets
+  `scanWarnings.truncated` and the structure summary reports the coverage gap;
+  a capped scan never reads as a small, clean project. `scanProject(root,
+  { maxFiles })` is injectable for tests.
+- `SECURITY.md` (private disclosure via GitHub Security Advisories),
+  `.github/CODEOWNERS` (trust-boundary modules flagged for mandatory review
+  once a second maintainer exists) and `docs/ARCHITECTURE.md` (audit pipeline,
+  trust boundaries, scoring doctrine). `CONTRIBUTING.md` links both.
+
+### Changed
+- README and package description repositioned: PRISM is the complete auditor
+  for AI-written code — security, code quality and structure — not only the
+  security auditor. Install section no longer says "once published"; test
+  count and analyzer count brought up to date; N/A scoring documented as
+  "excluded from the overall", not a silent 10/10.
+
 ## [1.5.1] — 2026-08-03
 
 **Security + honesty follow-up to 1.5.0.** A second adversarial audit (three

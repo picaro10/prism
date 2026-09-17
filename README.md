@@ -4,16 +4,27 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)
 
-**The security auditor for AI-written code — and the pipelines that ship it.**
+**The complete auditor for AI-written code — security, quality, structure, and the pipelines that ship it.**
 
 PRISM is a CLI tool by [LatenciaTech](https://latenciatech.com) built for the codebases the agentic
 era actually produces: fast-growing, largely AI-written, wired to agent tools and CI pipelines that
 deploy on every push. It scans a local codebase and produces a scored audit report across eight
-dimensions — **taint dataflow** (SQLi/XSS/SSRF/traversal/deserialization via curated semgrep rules),
-**secrets**, **AI-agent risks** (shell injection in tools, secrets in prompts, prompt injection,
-fail-open gates), **CI/CD workflow risks** (pwn requests, script injection, unpinned actions),
-**multi-ecosystem known vulnerabilities** (npm audit + OSV.dev for Python/Rust/Go/PHP/Ruby), plus
-structure, tests, Docker and consistency. Security-relevant rules map to **CWE/OWASP**, and SARIF
+dimensions spanning three fronts:
+
+- **Security** — hardcoded **secrets** and committed `.env` files; **taint dataflow** (SQLi, XSS,
+  SSRF, path traversal, deserialization and command injection via curated semgrep rules);
+  **AI-agent risks** (shell injection in agent tools, secrets and external content in LLM prompts,
+  destructive tools without confirmation, fail-open security gates); **CI/CD workflow risks**
+  (pwn requests, script injection, unpinned actions); and **multi-ecosystem known vulnerabilities**
+  (npm audit + OSV.dev for Python/Rust/Go/PHP/Ruby).
+- **Code quality** — decorative tests (zero assertions), disconnected tests (no SUT import),
+  skipped-test accumulation, snapshot overuse and test-to-source ratio; plus mixed naming
+  conventions, mixed natural languages and inconsistent indentation — the "many hands / many
+  models" fingerprint.
+- **Structure & project hygiene** — god files, circular imports (resolved import graph), dead files
+  (tsconfig-alias-aware reachability), Dockerfile and docker-compose hardening, and project layout.
+
+Security-relevant rules map to **CWE/OWASP**, and SARIF
 output feeds GitHub Code Scanning directly.
 
 It combines **deterministic static analysis** with an **optional adversarial LLM triage layer**: the
@@ -58,7 +69,7 @@ an undocumented rule fails CI.
 
 ## Install
 
-**From npm** (once published):
+**From npm**:
 
 ```sh
 npm install -g @latenciatech/prism
@@ -67,7 +78,7 @@ prism analyze <path>
 npx @latenciatech/prism analyze <path>
 ```
 
-**From source** (works today):
+**From source**:
 
 ```sh
 git clone https://github.com/picaro10/prism.git
@@ -494,7 +505,7 @@ Workflow      × 1.0
 Consistency   × 0.8
 ```
 
-A project with no Docker configuration scores 10/10 for that category (not penalized for something that doesn't apply). A project with zero source files (pure infrastructure/Docker/YAML repo) is not penalized for having no tests.
+A category with nothing to analyze is **N/A, not a silent 10/10**: a project with no Docker configuration gets `docker: N/A` and the category is excluded from the overall score entirely — "not analyzed" must never read as "perfect". A project with zero source files (pure infrastructure/Docker/YAML repo) likewise gets `tests: N/A` rather than a critical finding.
 
 ---
 
@@ -528,7 +539,7 @@ npm run test:watch     # vitest watch mode
 npm run test:coverage  # with coverage report
 ```
 
-The test suite has 400+ tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
+The test suite has 600+ tests covering all analyzers, utility modules (`loc`, `import-graph`, `file-context`, `prismignore`), the AI triage layer (with an injected fake client — the suite never hits the network), and integration scenarios.
 
 ### Lint
 
@@ -562,7 +573,7 @@ was inspected", not "deep audit passed":
 
 | Area | Support |
 |---|---|
-| TypeScript / JavaScript | **Full** — all nine analyzers, import graph, dead-file and cycle detection, taint analysis (with semgrep) |
+| TypeScript / JavaScript | **Full** — all ten analyzers, import graph, dead-file and cycle detection, taint analysis (with semgrep) |
 | Python | Partial — dependencies (`requirements.txt` pinning, OSV.dev advisories), basic structure, and taint analysis (with semgrep) |
 | Rust / Go / PHP / Ruby | Dependencies — known-vulnerability check of `Cargo.lock`, `go.mod`, `composer.lock`, `Gemfile.lock` via OSV.dev |
 | Docker / Compose | Full — Dockerfile and docker-compose checks |
@@ -587,7 +598,8 @@ was inspected", not "deep audit passed":
 | **Fase 6** — Persistent config | **Done** | `prism.config.json` + `prism init` wizard, justified suppressions with reasons and expiry |
 | **Fase 7** — Quality flywheel | **Done** | Public rule catalog (sync-tested), reproducible FP benchmark in CI, agentic checks AGT-003..006 |
 | **Fase 8** — Workflow Intelligence | **Done (v1.2.0)** | GitHub Actions analyzer (`WFL-*`): pwn requests, script injection, dead triggers, fail-open gates — cross-checked against the real repo |
-| **Next** | Planned | Wrap Semgrep as an optional analyzer (taint), finding lifecycle / quality profiles, more CI systems (GitLab CI) |
+| **Fase 9** — Security depth | **Done (v1.4.0)** | Curated semgrep taint pack (`SG-*`: SQLi/XSS/SSRF/traversal/deserialization), multi-ecosystem SCA via OSV.dev (`DEP-OSV-*`), CWE/OWASP Top 10 mapping with SARIF tags |
+| **Next** | Planned | Grow the semgrep rule pack from field findings, more agentic rules, finding lifecycle / quality profiles, more CI systems (GitLab CI) |
 
 ---
 
