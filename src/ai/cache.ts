@@ -98,7 +98,11 @@ export class VerdictCache {
   disabled = false;
   readonly stats = { hits: 0, misses: 0, writes: 0 };
 
-  constructor(readonly filePath: string) {}
+  /** `maxEntries` is injectable so eviction is testable without thousands of synchronous writes. */
+  constructor(
+    readonly filePath: string,
+    private readonly maxEntries = MAX_CACHE_ENTRIES,
+  ) {}
 
   /** The cache file for a project root, under the operator's cache dir. */
   static forProject(projectRoot: string, env: NodeJS.ProcessEnv = process.env): VerdictCache {
@@ -155,10 +159,10 @@ export class VerdictCache {
 
   private evict(data: CacheFile): void {
     const keys = Object.keys(data.entries);
-    if (keys.length <= MAX_CACHE_ENTRIES) return;
+    if (keys.length <= this.maxEntries) return;
     const oldest = keys
       .sort((a, b) => data.entries[a].usedAt.localeCompare(data.entries[b].usedAt))
-      .slice(0, keys.length - MAX_CACHE_ENTRIES);
+      .slice(0, keys.length - this.maxEntries);
     for (const k of oldest) delete data.entries[k];
   }
 

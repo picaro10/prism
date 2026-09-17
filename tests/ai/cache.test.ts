@@ -81,12 +81,16 @@ describe('VerdictCache', () => {
   });
 
   it('evicts the least recently used entries beyond the cap', () => {
+    // A small injected cap: 5,005 synchronous atomic writes took 11s on the
+    // Windows CI runner (default vitest timeout is 5s) — the cap is the seam.
     const dir = tmp();
-    const c = new VerdictCache(join(dir, 'v.json'));
-    for (let i = 0; i < MAX_CACHE_ENTRIES + 5; i++) c.put(`k${i}`, i);
-    expect(c.size()).toBe(MAX_CACHE_ENTRIES);
+    const cap = 5;
+    const c = new VerdictCache(join(dir, 'v.json'), cap);
+    for (let i = 0; i < cap + 5; i++) c.put(`k${i}`, i);
+    expect(c.size()).toBe(cap);
     expect(c.get('k0')).toBeUndefined(); // oldest, gone
-    expect(c.get(`k${MAX_CACHE_ENTRIES + 4}`)).toBe(MAX_CACHE_ENTRIES + 4); // newest, kept
+    expect(c.get(`k${cap + 4}`)).toBe(cap + 4); // newest, kept
+    expect(MAX_CACHE_ENTRIES).toBeGreaterThan(cap); // the production default stays generous
   });
 
   it('disables itself on a write failure instead of failing the run', () => {
