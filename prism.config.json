@@ -39,6 +39,11 @@
       "rule": "AGT-006",
       "file": "benchmarks/ai/cases.ts",
       "reason": "AI-triage benchmark corpus: the sample lives inside a string literal, materialized to a temp project at run time (same as benchmarks/cases.ts)"
+    },
+    {
+      "rule": "STR-011",
+      "file": "benchmarks/cases.ts",
+      "reason": "Benchmark corpus: one flat file keeps every planted case and trap greppable and diffable side by side; it is data that grows by design, not logic to split"
     }
   ]
 }

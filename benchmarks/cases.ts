@@ -376,6 +376,83 @@ export const CASES: BenchCase[] = [
     expect: { 'src/bot.ts': [] },
   },
 
+  // ── Python parity for the agentic checks (field-validated on a Python agent framework) ──
+  {
+    name: 'tp-python-shell-injection-in-tool',
+    categories: ['agentic'],
+    files: {
+      'package.json': PACKAGE_JSON,
+      'tools/shell.py': [
+        'import subprocess, os',
+        '',
+        'def run_tool(cmd: str) -> str:',
+        '    """Agent tool: runs a shell command the model chose."""',
+        '    return subprocess.check_output(f"sh -c {cmd}", shell=True).decode()',
+        '',
+        'def list_dir(path: str) -> str:',
+        '    return os.popen("ls " + path).read()',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'tools/shell.py': ['AGT-001'] },
+  },
+  {
+    name: 'tp-python-external-content-in-prompt',
+    categories: ['agentic'],
+    files: {
+      'package.json': PACKAGE_JSON,
+      'agent/summarize.py': [
+        'async def summarize(url: str) -> str:',
+        '    resp = await client.get(url)',
+        '    prompt = f"Summarize this page: {resp.text}"',
+        '    return await llm(prompt)',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'agent/summarize.py': ['AGT-004'] },
+  },
+  {
+    name: 'trap-python-safe-subprocess-and-structured-turns',
+    categories: ['agentic'],
+    // The recommended Python patterns: argument lists, a literal command with
+    // shell=True, message text as a structured user turn, logging, and the
+    // three field FP shapes (error message with "Assistant" in a product name,
+    // an MCP tool-result content block, a negative predicate failing closed).
+    files: {
+      'package.json': PACKAGE_JSON,
+      'agent/safe.py': [
+        'import subprocess, logging',
+        '',
+        'def run(path: str) -> str:',
+        '    return subprocess.run(["ls", "-la", path], check=True, capture_output=True).stdout.decode()',
+        '',
+        'def status() -> str:',
+        '    return subprocess.run("uptime", shell=True, capture_output=True).stdout.decode()',
+        '',
+        'async def handle(message) -> None:',
+        '    logging.info(f"incoming: {message.text}")',
+        '    messages.append({"role": "user", "content": message.text})',
+        '    await llm(messages)',
+        '',
+        'def _raise_for_status(response) -> None:',
+        '    if response.status_code >= 400:',
+        '        raise RuntimeError(f"Home Assistant API {response.status_code}: {response.text[:200]}")',
+        '',
+        'def tool_result(resp) -> dict:',
+        '    return {"isError": True, "content": [{"type": "text", "text": f"HTTP {resp.status_code}: {resp.text[:500]}"}]}',
+        '',
+        'async def is_locked_out(user_id: str) -> bool:',
+        '    """Auth guard: too many failed attempts."""',
+        '    try:',
+        '        return bool(await redis.exists(f"lockout:{user_id}"))',
+        '    except Exception:',
+        '        return True  # fail-closed: assume locked out',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'agent/safe.py': [] },
+  },
+
   // ── Taint (semgrep) — v1.4.0 pillar 1 ───────────────────────────────────
   {
     name: 'tp-sqli-taint-express',

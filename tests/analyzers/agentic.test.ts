@@ -244,3 +244,178 @@ describe('AgenticAnalyzer', () => {
     expect(result.findings).toHaveLength(0);
   });
 });
+
+describe('Python parity — the same risks in the shapes Python agents actually write', () => {
+  describe('detectShellInjection (AGT-001, Python)', () => {
+    it('flags os.system / os.popen with an f-string, .format, % or + command', () => {
+      expect(detectShellInjection('os.system(f"ls {path}")')).toEqual([1]);
+      expect(detectShellInjection("os.popen('git log ' + ref)")).toEqual([1]);
+      expect(detectShellInjection('os.system("rm -rf {}".format(target))')).toEqual([1]);
+      expect(detectShellInjection('os.system("cat %s" % name)')).toEqual([1]);
+    });
+
+    it('flags subprocess with shell=True and a dynamic command, and sh -c with an f-string', () => {
+      expect(detectShellInjection('subprocess.run(f"convert {src} out.png", shell=True)')).toEqual([1]);
+      expect(detectShellInjection('subprocess.check_output("ls " + d, shell=True)')).toEqual([1]);
+      expect(detectShellInjection('subprocess.Popen(["sh", "-c", f"echo {msg}"])')).toEqual([1]);
+    });
+
+    it('does NOT flag subprocess with an argument list, a literal command with shell=True, or shell-less f-strings', () => {
+      expect(detectShellInjection('subprocess.run(["ls", path], check=True)')).toEqual([]);
+      expect(detectShellInjection('subprocess.run("ls -la", shell=True)')).toEqual([]);
+      // No shell: the f-string is the program name, not a shell line.
+      expect(detectShellInjection('subprocess.run(f"{tool}", capture_output=True)')).toEqual([]);
+      expect(detectShellInjection('# os.system(f"ls {path}")  -- documented anti-pattern')).toEqual([]);
+    });
+  });
+
+  describe('detectSecretInPrompt (AGT-002, Python)', () => {
+    it('flags os.environ / os.getenv interpolated into prompt context', () => {
+      expect(detectSecretInPrompt('prompt = f"You are a bot. token={os.environ[\'API_KEY\']}"')).toEqual([1]);
+      expect(detectSecretInPrompt('system = f"key={os.getenv(\'OPENAI_KEY\')}"')).toEqual([1]);
+      expect(
+        detectSecretInPrompt('messages.append({"role": "system", "content": f"secret={os.environ.get(\'S\')}"})'),
+      ).toEqual([1]);
+    });
+    it('does NOT flag env usage away from prompt context', () => {
+      expect(detectSecretInPrompt('port = int(os.environ.get("PORT", "8000"))')).toEqual([]);
+      expect(detectSecretInPrompt('url = f"http://{os.environ[\'HOST\']}:8000"')).toEqual([]);
+    });
+  });
+
+  describe('detectExternalContentInPrompt (AGT-004, Python)', () => {
+    it('flags request/response/message/email content interpolated with an f-string or .format into a prompt', () => {
+      expect(detectExternalContentInPrompt('prompt = f"Summarize: {request.json[\'text\']}"')).toEqual([1]);
+      expect(detectExternalContentInPrompt('prompt = f"Summarize this page: {response.text}"')).toEqual([1]);
+      expect(detectExternalContentInPrompt('system = "Reply to: {}".format(update.message.text)')).toEqual([1]);
+      expect(
+        detectExternalContentInPrompt('messages.append({"role": "user", "content": f"Task: {email_body}"})'),
+      ).toEqual([1]);
+    });
+    it('does NOT flag a structured user turn, a log line, or internal variables', () => {
+      expect(detectExternalContentInPrompt('messages.append({"role": "user", "content": message.text})')).toEqual([]);
+      expect(detectExternalContentInPrompt('logger.info(f"incoming: {message.text}")')).toEqual([]);
+      expect(detectExternalContentInPrompt('prompt = f"You are {bot_name} v{version}"')).toEqual([]);
+      // Field FP shape from AETHER: a summarizer transcript line with role/content of prior turns.
+      expect(detectExternalContentInPrompt('parts.append(f"[{role}]: {content}")')).toEqual([]);
+    });
+  });
+
+  describe('detectFailOpenFallback (AGT-006, Python)', () => {
+    it('flags a security gate whose except returns permissive', () => {
+      const src = [
+        'async def check_permission(user, action):',
+        '    try:',
+        '        return await policy.evaluate(user, action)',
+        '    except Exception:',
+        '        return True',
+      ].join('\n');
+      expect(detectFailOpenFallback(src)).toEqual([5]);
+    });
+    it('flags allowed=True / {"allowed": True} in an except inside an approval gate', () => {
+      const src = [
+        'def approve(request):',
+        '    try:',
+        '        return approval_service.decide(request)',
+        '    except TimeoutError:',
+        '        return {"allowed": True, "reason": "timeout"}',
+      ].join('\n');
+      expect(detectFailOpenFallback(src)).toEqual([5]);
+    });
+    it('does NOT flag fail-closed gates or a permissive except outside security context', () => {
+      const closed = [
+        'def check_auth(u):',
+        '    try:',
+        '        return verify(u)',
+        '    except Exception:',
+        '        return False',
+      ].join('\n');
+      expect(detectFailOpenFallback(closed)).toEqual([]);
+      const flag = [
+        'def show_banner(u):',
+        '    try:',
+        '        return flags.get(u)',
+        '    except Exception:',
+        '        return True',
+      ].join('\n');
+      expect(detectFailOpenFallback(flag)).toEqual([]);
+    });
+  });
+});
+
+describe('Python parity — field false positives from a real agent framework, engineered out', () => {
+  it('AGT-006: a NEGATIVE predicate (is_locked_out, is_blocked…) returning True on error is fail-CLOSED', () => {
+    const src = [
+      'async def is_locked_out(self, user_id: str) -> bool:',
+      '    """Check if user is locked out due to too many failed auth attempts."""',
+      '    try:',
+      '        return bool(await client.exists(key) > 0)',
+      '    except Exception as e:',
+      '        logger.error(f"is_locked_out failed: {e}")',
+      '        return True  # fail-closed: assume locked out',
+    ].join('\n');
+    expect(detectFailOpenFallback(src)).toEqual([]);
+  });
+
+  it('AGT-006: an inline "fail-closed" comment on the return is an explicit, documented decision', () => {
+    const src = [
+      'def check_permission(u):',
+      '    try:',
+      '        return policy.allows(u)',
+      '    except Exception:',
+      '        return True  # fail-closed by design: this predicate means DENY',
+    ].join('\n');
+    expect(detectFailOpenFallback(src)).toEqual([]);
+  });
+
+  it('AGT-006: a permissive return AFTER the except block (dedented) is not the except handler', () => {
+    const src = [
+      'def _is_settings_admin(self, ctx) -> bool:',
+      '    """Check trusted server-side admin allowlists."""',
+      '    try:',
+      '        uid = int(ctx.user_id)',
+      '        if uid in settings.TELEGRAM_ADMIN_IDS:',
+      '            return True',
+      '    except (ValueError, TypeError):',
+      '        pass',
+      '',
+      '    if ctx.user_id in settings.WHATSAPP_ADMIN_NUMBERS:',
+      '        return True',
+      '    return False',
+    ].join('\n');
+    expect(detectFailOpenFallback(src)).toEqual([]);
+  });
+
+  it('AGT-004: an error message is not a prompt, even when a product name contains "Assistant"', () => {
+    expect(
+      detectExternalContentInPrompt(
+        'raise RuntimeError(f"Home Assistant API {response.status_code}: {response.text[:200]}")',
+      ),
+    ).toEqual([]);
+  });
+
+  it('AGT-004: the same error message split over two lines (raise on the opener line) is still not a prompt', () => {
+    const src = [
+      'if response.status_code >= 400:',
+      '    raise RuntimeError(',
+      '        f"Home Assistant API {response.status_code}: {response.text[:200]}"',
+      '    )',
+    ].join('\n');
+    expect(detectExternalContentInPrompt(src)).toEqual([]);
+  });
+
+  it('AGT-004: an MCP tool-result content block is transport, not prompt construction — unless a role is set', () => {
+    // Tool result envelope: `content: [{type: text, text: ...}]` with no role/prompt/system word.
+    expect(
+      detectExternalContentInPrompt(
+        '"content": [{"type": "text", "text": f"HTTP {resp.status_code}: {resp.text[:500]}"}],',
+      ),
+    ).toEqual([]);
+    // The same block shape inside a user turn IS prompt construction.
+    expect(
+      detectExternalContentInPrompt(
+        'messages.append({"role": "user", "content": [{"type": "text", "text": f"Page: {response.text}"}]})',
+      ),
+    ).toEqual([1]);
+  });
+});

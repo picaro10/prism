@@ -6,6 +6,22 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Python parity for the agentic checks.** `AGT-001` knows `os.system`/
+  `os.popen` and `subprocess.* … shell=True` (or `["sh", "-c", f"…"]`) with an
+  f-string, `.format()`, `%` or `+` command — argument lists and literal
+  commands never fire. `AGT-002` knows `{os.environ[…]}`/`{os.getenv(…)}` in
+  prompt context. `AGT-004` reads Python f-string and `.format()`
+  interpolations and the Flask/requests/aiohttp shapes (`request.json`,
+  `response.text`, `email_body`). `AGT-006` reads `except …:` handlers,
+  judged only inside the handler's indentation, with `return True` /
+  `{"allowed": True}` as permissive. Field-tested on a real Python agent
+  framework before shipping: four false positives found and engineered out —
+  a negative predicate (`is_locked_out`) returning `True` is fail-closed; an
+  inline `# fail-closed` note is a decision; a permissive return after a
+  dedent is not the handler; `raise …Error(f"Home Assistant …")` is an
+  error message, not a prompt; an MCP tool-result content block without a
+  role is transport, not prompt construction. That framework now scores
+  agentic 10/10 for the right reason.
 - **`DOC-025` (critical): `/var/run/docker.sock` mounted into a compose service**,
   short or long volume syntax. The Docker API over that socket is root on the
   host, `:ro` or not. Found in the field on a production compose PRISM had

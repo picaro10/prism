@@ -198,10 +198,24 @@ export function detectShellInjection(content: string): number[] {
     const interpolatedTemplate = /\bexec(Sync)?\s*\([^)]*\$\{/.test(l); // exec(`... ${x} ...`) or exec(tmpl) with ${
     const stringConcat = /\bexec(Sync)?\s*\(\s*['"][^'"]*['"]\s*\+/.test(l); // exec("cmd " + x)
     const varConcat = /\bexec(Sync)?\s*\(\s*\w+\s*\+/.test(l); // exec(cmd + " -rf")
-    if (interpolatedTemplate || stringConcat || varConcat) hits.push(i + 1);
+    // Python: os.system/os.popen always use a shell; subprocess only with
+    // shell=True or an explicit `sh -c`. A dynamic command is an f-string,
+    // .format(), % formatting or + concatenation on the same line. A literal
+    // with shell=True, or an argument list, never fires.
+    const pyOsShell = /\bos\.(system|popen)\s*\(/.test(l) && PY_DYNAMIC_STRING.test(l);
+    const pySubprocessShell =
+      /\bsubprocess\.(run|call|check_output|check_call|Popen)\s*\(/.test(l) &&
+      /\bshell\s*=\s*True\b/.test(l) &&
+      PY_DYNAMIC_STRING.test(l);
+    const pyShDashC = /\[\s*["'](?:\/bin\/)?(?:sh|bash|zsh)["']\s*,\s*["']-c["']\s*,\s*f["']/.test(l);
+    if (interpolatedTemplate || stringConcat || varConcat || pyOsShell || pySubprocessShell || pyShDashC)
+      hits.push(i + 1);
   }
   return hits;
 }
+
+/** A Python string built at runtime: f-string, .format(), % formatting, or + concatenation. */
+const PY_DYNAMIC_STRING = /\bf["']|\.format\(|["']\s*%\s*\(?\w|["']\s*\+\s*\w|\w\s*\+\s*["']/;
 
 /**
  * True when a line is NOT real executable code that could inject — a comment,
@@ -226,7 +240,9 @@ export function detectSecretInPrompt(content: string): number[] {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (isPatternDefinition(l)) continue;
-    if (/\$\{\s*process\.env\.\w+/.test(l) && PROMPT_CTX.test(l)) hits.push(i + 1);
+    const jsEnv = /\$\{\s*process\.env\.\w+/.test(l);
+    const pyEnv = /\{[^}]*\bos\.(environ|getenv)\b/.test(l); // f"...{os.environ['X']}..." / {os.getenv('X')}
+    if ((jsEnv || pyEnv) && PROMPT_CTX.test(l)) hits.push(i + 1);
   }
   return hits;
 }
@@ -290,6 +306,10 @@ const EXTERNAL_CONTENT = new RegExp(
     '\\bevent\\.text\\b',
     '\\binteraction\\.(content|options)\\b',
     '\\bpayload\\.text\\b',
+    // Python web/HTTP shapes: Flask/FastAPI request, requests/aiohttp responses.
+    '\\brequest\\.(json|data|form|args|values|get_json)\\b',
+    '\\b(resp|response|res)\\.(text|content|json)\\b',
+    'email_(body|text|html|content)',
   ].join('|'),
 );
 const EXTERNAL_CONTENT_ALL = new RegExp(EXTERNAL_CONTENT.source, 'g');
@@ -305,16 +325,34 @@ export function detectExternalContentInPrompt(content: string): number[] {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (isPatternDefinition(l)) continue;
-    const interpolations = l.match(/\$\{[^}]*\}/g);
-    if (!interpolations) continue;
+    // Where a value enters the string: JS `${...}`, Python f-string `{...}`
+    // (only on a line that has an f-prefix), and `.format(...)` arguments.
+    const exprs: string[] = l.match(/\$\{[^}]*\}/g) ?? [];
+    if (/\bf["']/.test(l)) exprs.push(...(l.match(/\{[^{}]+\}/g) ?? []));
+    for (const m of l.matchAll(/\.format\(([^)]*)\)/g)) exprs.push(...m[1].split(','));
+    if (exprs.length === 0) continue;
     // Judge the prompt context on the line WITHOUT its interpolations and
     // without any external-source expression: `${message.text}` — or a bare
     // `message.text.length` next to it — must not itself supply the word
     // "message" that makes a log line or a preview slice look like prompt
     // construction (field FPs on orion).
-    const frame = l.replace(/\$\{[^}]*\}/g, '').replace(EXTERNAL_CONTENT_ALL, '');
+    const frame = l
+      .replace(/\$\{[^}]*\}/g, '')
+      .replace(/\{[^{}]+\}/g, '')
+      .replace(/\.format\([^)]*\)/g, '.format()')
+      .replace(EXTERNAL_CONTENT_ALL, '');
     if (!PROMPT_CTX.test(frame)) continue;
-    if (interpolations.some((expr) => EXTERNAL_CONTENT.test(expr))) hits.push(i + 1);
+    // An error message is not a prompt — even when a product name contains
+    // "Assistant" (field FP: raise RuntimeError(f"Home Assistant API …")).
+    // The `raise …Error(` may sit on the previous line with the f-string as
+    // a continuation, so the opener line counts too.
+    const opener = i > 0 && /\($/.test(lines[i - 1].trim()) ? lines[i - 1] : '';
+    if (/\braise\b|\b\w*(Error|Exception)\s*\(/.test(`${opener}\n${frame}`)) continue;
+    // An MCP / content-block tool RESULT (`content: [{type: text, text: …}]`)
+    // is transport back to the model, not prompt authoring — unless the same
+    // line also sets a role or names a prompt/system/instruction.
+    if (/["']type["']\s*:\s*["']text["']/.test(frame) && !/\b(role|prompt|system|instruction)\b/i.test(frame)) continue;
+    if (exprs.some((expr) => EXTERNAL_CONTENT.test(expr))) hits.push(i + 1);
   }
   return hits;
 }
@@ -341,8 +379,11 @@ export function detectPublicMcpBind(content: string): number[] {
 /** Function/context names that mean "this code IS a security gate". */
 const SECURITY_GATE_CTX = /auth|permission|policy|guard|approv|rbac|\bacl\b|access/i;
 
-/** A permissive verdict: `return true` or an allowed/granted/authorized: true. */
-const PERMISSIVE_RETURN = /return\s+true\b|(allowed|granted|authorized|permitted)\s*:\s*true/;
+/** Function names whose TRUE means deny: returning true on error is fail-closed for these. */
+const NEGATIVE_PREDICATE = /\w*(lock|block|deny|denied|reject|ban|forbid|revok|expir|throttl|limited|suspend)\w*/i;
+
+/** A permissive verdict: `return true`/`return True`, or allowed/granted/authorized: true (JS object or Python dict/kwarg). */
+const PERMISSIVE_RETURN = /return\s+[Tt]rue\b|(allowed|granted|authorized|permitted)["']?\s*[:=]\s*[Tt]rue\b/;
 
 /**
  * AGT-006 — a security gate that fails OPEN: a catch block returning a
@@ -354,13 +395,28 @@ export function detectFailOpenFallback(content: string): number[] {
   const hits: number[] = [];
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    if (!/\bcatch\b/.test(lines[i]) || isPatternDefinition(lines[i])) continue;
-    const context = lines.slice(Math.max(0, i - 20), i + 1).join('\n');
-    if (!SECURITY_GATE_CTX.test(context)) continue;
-    // Same-line `catch { return true; }` or a permissive return within the next lines.
+    // JS `catch` or a Python `except ...:` clause.
+    const isExcept = /^\s*except\b.*:\s*$/.test(lines[i]);
+    if (!(/\bcatch\b/.test(lines[i]) || isExcept) || isPatternDefinition(lines[i])) continue;
+    const before = lines.slice(Math.max(0, i - 20), i + 1);
+    if (!SECURITY_GATE_CTX.test(before.join('\n'))) continue;
+    // A NEGATIVE predicate (is_locked_out, isBlocked, should_deny…) means
+    // "true = deny": returning true on error is fail-CLOSED. Field FP on a
+    // real agent's session guard.
+    const enclosing =
+      [...before].reverse().find((l) => /\b(def|function)\s+\w+|\w+\s*[:=]\s*(async\s*)?\(/.test(l)) ?? '';
+    if (NEGATIVE_PREDICATE.test(enclosing)) continue;
+    // Same-line `catch { return true; }` or a permissive return within the
+    // next lines — for Python, only while still INSIDE the except block
+    // (deeper indentation than the `except` line).
+    const exceptIndent = isExcept ? lines[i].length - lines[i].trimStart().length : -1;
     for (let j = i; j < Math.min(lines.length, i + 6); j++) {
       if (isPatternDefinition(lines[j])) continue;
+      const indent = lines[j].length - lines[j].trimStart().length;
+      if (isExcept && j > i && lines[j].trim() !== '' && indent <= exceptIndent) break; // dedented: handler ended
       if (PERMISSIVE_RETURN.test(lines[j])) {
+        // An inline "fail-closed" note is an explicit, documented decision.
+        if (/fail[- ]?closed/i.test(lines[j])) break;
         hits.push(j + 1);
         break;
       }

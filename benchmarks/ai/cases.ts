@@ -221,6 +221,25 @@ export const AI_CASES: AiBenchCase[] = [
     why: 'The test exercises a copy of the schema, not src/config.ts — the real module can drift and the test stays green.',
   },
 
+  {
+    name: 'real-python-shell-injection-in-agent-tool',
+    categories: ['agentic'],
+    files: {
+      'package.json': PACKAGE_JSON,
+      'tools/shell.py': [
+        'import subprocess',
+        '',
+        'def run_tool(cmd: str) -> str:',
+        '    """Agent tool: runs a shell command the model chose."""',
+        '    return subprocess.check_output(f"sh -c {cmd}", shell=True).decode()',
+        '',
+      ].join('\n'),
+    },
+    target: { file: 'tools/shell.py', id: 'AGT-001' },
+    expect: 'real',
+    why: 'shell=True with a model-controlled f-string is command injection; nothing constrains cmd.',
+  },
+
   // ── Real, no-code tier: judged from the finding's facts alone ───────────────
   {
     name: 'real-wildcard-dependency-version-no-code',

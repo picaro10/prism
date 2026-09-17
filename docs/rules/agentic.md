@@ -10,7 +10,7 @@ a scanner must not flag itself).
 | `AGT-001` | high | A shell command built with interpolation/concatenation (`exec`/`execSync` spawn a shell). |
 | `AGT-002` | medium | An environment secret interpolated into an LLM prompt/message. |
 | `AGT-003` | medium | A destructive agent tool (delete/drop/kill/…) defined with no confirmation gate. |
-| `AGT-004` | high | External content (fetched page, request body, email, **chat message text** from Telegram/Discord/Slack handlers) interpolated into a prompt. |
+| `AGT-004` | high | External content (fetched page, request body, email, **chat message text** from Telegram/Discord/Slack handlers) interpolated into a prompt — JS `${}`, Python f-strings and `.format()`. Error messages (`raise …Error(f"…")`) and MCP tool-result content blocks without a role are not prompts. |
 | `AGT-005` | high | An MCP/agent server bound to `0.0.0.0`. |
 | `AGT-006` | high | A security gate whose `catch` returns a permissive verdict (fails open). |
 
@@ -27,6 +27,10 @@ execSync(`ls ${dir}`);
 execFileSync('ls', [dir]);
 ```
 
+Python shapes: `os.system`/`os.popen` with an f-string, `.format()`, `%` or `+`; `subprocess.*`
+only with `shell=True` (or an explicit `["sh", "-c", f"…"]`) and a dynamic command. An argument
+list, or a literal command with `shell=True`, never fires.
+
 `execFile`/`execFileSync` are intentionally never flagged: they are the fix.
 
 ## AGT-002 — secret in prompt
@@ -34,7 +38,7 @@ execFileSync('ls', [dir]);
 `` `You are a bot. token=${process.env.API_KEY}` `` leaks the credential into model context and
 provider logs. Pass credentials via the client/transport, never the message body. Requires both
 the env interpolation and a prompt keyword on the same line — ordinary `${process.env.PORT}`
-config never fires.
+config never fires. Python: `f"…{os.environ['X']}…"` / `{os.getenv('X')}` in prompt context.
 
 ## AGT-003 — destructive tool without confirmation
 
@@ -82,4 +86,8 @@ async function checkPermission(user, action) {
 
 Fail closed (`return false`/deny) and surface the error. Requires auth/permission/policy/
 approval context in the preceding lines — a feature-flag helper defaulting to `true` never
-fires.
+fires. Python: an `except …:` handler returning `True` / `{"allowed": True}`, judged only inside
+the handler's indentation. Two field lessons from a real agent framework: a **negative
+predicate** (`is_locked_out`, `is_blocked`, `should_deny`…) returning `True` on error is
+fail-*closed* and never fires; and an inline `# fail-closed` note on the return is an explicit
+decision that silences the rule.
