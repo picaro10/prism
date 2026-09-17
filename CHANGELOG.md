@@ -3,7 +3,13 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
-## [Unreleased]
+## [1.6.0] — 2026-09-17
+
+**The AI-layer release.** The triage judge now reads code only when code can
+change the verdict, is measured by its own benchmark, remembers what it has
+already judged, and sees across files. Plus the scanner file cap and the
+bus-factor docs from the last audit. Every AI claim below was measured
+against a live model, not only against the test suite.
 
 ### Added
 - **Cross-file context for the AI judge (`neighborhood` tier).** A line-level

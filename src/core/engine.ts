@@ -45,7 +45,7 @@ import { WorkflowAnalyzer } from '../analyzers/workflow.js';
 import { SemgrepAnalyzer } from '../analyzers/semgrep.js';
 import { OsvAnalyzer } from '../analyzers/osv.js';
 
-const PRISM_VERSION = '1.5.1';
+const PRISM_VERSION = '1.6.0';
 
 /** Categories accepted by the `--only` filter (one per static analyzer). */
 export const ANALYZER_CATEGORIES = [
