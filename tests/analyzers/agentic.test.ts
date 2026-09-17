@@ -87,6 +87,34 @@ describe('detectExternalContentInPrompt (AGT-004)', () => {
     expect(detectExternalContentInPrompt('const prompt = `You are ${botName}, version ${version}`;')).toEqual([]);
     expect(detectExternalContentInPrompt('const raw = `${await res.text()}`; // parse later')).toEqual([]);
   });
+
+  it('flags chat/messaging text (Telegram, Discord, Slack handlers) interpolated into a prompt', () => {
+    expect(detectExternalContentInPrompt('const prompt = `Reply to the user: ${msg.text}`;')).toEqual([1]);
+    expect(detectExternalContentInPrompt('const system = `Context: ${ctx.message.text}`;')).toEqual([1]);
+    expect(
+      detectExternalContentInPrompt('messages.push({ role: "user", content: `Task: ${message.caption}` });'),
+    ).toEqual([1]);
+    expect(detectExternalContentInPrompt('const prompt = `Summarize: ${event.text}`;')).toEqual([1]);
+    expect(detectExternalContentInPrompt('const instruction = `${update.message.caption}`;')).toEqual([1]);
+  });
+
+  it('does NOT flag message text passed as a structured user turn, or merely logged (the recommended patterns)', () => {
+    // A user-role content block is data, not instructions — no interpolation, no finding.
+    expect(detectExternalContentInPrompt("messages.push({ role: 'user', content: message.text });")).toEqual([]);
+    expect(detectExternalContentInPrompt('logger.info(`incoming: ${msg.text}`);')).toEqual([]);
+    expect(detectExternalContentInPrompt('const firewall = analyzePrompt(message.text);')).toEqual([]);
+  });
+
+  it('does NOT flag chat-history merging or preview slicing (field FPs on a real agent)', () => {
+    // Consecutive same-role turns merged: the content stays in its role block.
+    expect(detectExternalContentInPrompt('prev.content += `\\n${msg.content}`;')).toEqual([]);
+    // A preview: the word "message" outside the interpolation is not prompt context.
+    expect(
+      detectExternalContentInPrompt(
+        'const msgPreview = message.text.length > 150 ? `${message.text.slice(0, 147)}...` : message.text;',
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe('detectPublicMcpBind (AGT-005)', () => {

@@ -304,22 +304,69 @@ function analyzeCompose(file: string, content: string): { findings: Finding[]; s
     scoreDelta -= 0.2;
   }
 
-  // --- Check: exposed ports without binding to specific interface ---
-  const portAllInterfaces = /^\s*-\s*["']?\d+:\d+["']?\s*$/;
+  // --- Per-service checks: exposed ports (DOC-024) and the Docker socket (DOC-025) ---
+  // Walked once with the current service tracked, so each finding names its
+  // service and fires once per service — a compose with three published
+  // services is three exposures, not one (the old once-per-file `break`
+  // under-counted on a real dev compose in the field). Only what a service
+  // does counts; a commented line or a mention in an env value is not a mount.
+  const portAllInterfaces = /^\s*-\s*["']?(?:0\.0\.0\.0:)?\d+:\d+["']?\s*$/;
+  const dockerSockShort = /^\s*-\s*["']?\/var\/run\/docker\.sock(?::|["']|\s*$)/;
+  const dockerSockLong = /^\s*source:\s*["']?\/var\/run\/docker\.sock["']?\s*$/;
+  let portsPenalty = 0;
+  const MAX_PORTS_PENALTY = 2.0;
+  let service: string | null = null;
+  let inServices = false;
+  const portFlagged = new Set<string>();
+  const sockFlagged = new Set<string>();
   for (let i = 0; i < lines.length; i++) {
-    if (portAllInterfaces.test(lines[i])) {
+    const l = lines[i];
+    if (/^\s*#/.test(l)) continue;
+    const top = /^([A-Za-z0-9_.-]+):\s*$/.exec(l);
+    if (top) {
+      inServices = top[1] === 'services';
+      service = null;
+      continue;
+    }
+    const svc = /^ {2}([A-Za-z0-9_.-]+):\s*$/.exec(l);
+    if (svc && inServices) {
+      service = svc[1];
+      continue;
+    }
+    const where = service ?? '(top level)';
+
+    if (portAllInterfaces.test(l) && !portFlagged.has(where)) {
+      portFlagged.add(where);
       findings.push({
         id: 'DOC-024',
         category: 'docker',
         severity: 'medium',
-        title: 'Port exposed on all interfaces',
-        description: `${file}:${i + 1}: Port binding without interface restriction (0.0.0.0). Service is accessible from any network.`,
+        title: `Port exposed on all interfaces: ${where}`,
+        description: `${file}:${i + 1}: service '${where}' publishes a port without an interface restriction (0.0.0.0). It is reachable from any network the host is on.`,
         file,
         line: i + 1,
         suggestion: 'Bind to 127.0.0.1 for internal services: "127.0.0.1:5432:5432".',
       });
-      scoreDelta -= 0.5;
-      break; // One finding per file
+      // One convention missing across N services is one decision, not N failures.
+      const step = Math.min(0.5, MAX_PORTS_PENALTY - portsPenalty);
+      portsPenalty += step;
+      scoreDelta -= step;
+    }
+
+    if ((dockerSockShort.test(l) || dockerSockLong.test(l)) && !sockFlagged.has(where)) {
+      sockFlagged.add(where);
+      findings.push({
+        id: 'DOC-025',
+        category: 'docker',
+        severity: 'critical',
+        title: `Docker socket mounted into a container: ${where}`,
+        description: `${file}:${i + 1}: service '${where}' mounts /var/run/docker.sock. The Docker API over that socket is root on the host — start any container, mount any path, read any secret. A read-only mount does not help: the API is reached through the socket, not the filesystem.`,
+        file,
+        line: i + 1,
+        suggestion:
+          'Remove the mount. If this service genuinely manages containers (a reverse proxy, a dashboard, a CI runner), put a socket proxy in front of it (e.g. tecnativa/docker-socket-proxy) exposing only the API calls it needs, and record the decision as a justified suppression.',
+      });
+      scoreDelta -= 2;
     }
   }
 

@@ -10,7 +10,7 @@ a scanner must not flag itself).
 | `AGT-001` | high | A shell command built with interpolation/concatenation (`exec`/`execSync` spawn a shell). |
 | `AGT-002` | medium | An environment secret interpolated into an LLM prompt/message. |
 | `AGT-003` | medium | A destructive agent tool (delete/drop/kill/…) defined with no confirmation gate. |
-| `AGT-004` | high | External content (fetched page, request body, email) interpolated into a prompt. |
+| `AGT-004` | high | External content (fetched page, request body, email, **chat message text** from Telegram/Discord/Slack handlers) interpolated into a prompt. |
 | `AGT-005` | high | An MCP/agent server bound to `0.0.0.0`. |
 | `AGT-006` | high | A security gate whose `catch` returns a permissive verdict (fails open). |
 

@@ -77,6 +77,7 @@ export const RULE_METADATA: Record<string, RuleSecurityMetadata> = {
   'DOC-020': { cwe: 'CWE-250', owasp: 'A05:2021' },
   'DOC-021': { cwe: 'CWE-798', owasp: 'A07:2021' },
   'DOC-024': { cwe: 'CWE-1327', owasp: 'A05:2021' },
+  'DOC-025': { cwe: 'CWE-668', owasp: 'A05:2021' },
 
   // ---------- Dependencies (known-vulnerability signals) ----------
   'DEP-001': { cwe: 'CWE-494', owasp: 'A08:2021' },

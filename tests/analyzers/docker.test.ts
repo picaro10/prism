@@ -147,3 +147,116 @@ describe('DockerAnalyzer — fixture/vendor exclusion', () => {
     expect(result.applicable).toBeUndefined();
   });
 });
+
+describe('DockerAnalyzer — compose services: docker.sock (DOC-025) and per-service DOC-024', () => {
+  const analyzer = new DockerAnalyzer();
+
+  function scanWith(files: string[]): ProjectScan {
+    return {
+      rootPath: '/fake',
+      files,
+      fileTree: [],
+      meta: {
+        stack: { primary: 'typescript', secondary: [] },
+        totalLoc: 0,
+        totalFiles: files.length,
+        hasGit: true,
+        hasDocker: true,
+        hasCi: false,
+        frameworks: ['Docker'],
+      },
+    };
+  }
+  const run = (compose: string) => analyzer.analyze(scanWith(['docker-compose.yml']), async () => compose);
+
+  it('flags a docker.sock mount as critical, once per service, naming the service', async () => {
+    const compose = [
+      'services:',
+      '  api:',
+      '    image: node:22',
+      '    restart: unless-stopped',
+      '    volumes:',
+      '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+      '      - ./data:/data',
+      '  traefik:',
+      '    image: traefik:v3.1',
+      '    restart: unless-stopped',
+      '    volumes:',
+      '      - type: bind',
+      '        source: /var/run/docker.sock',
+      '        target: /var/run/docker.sock',
+      '',
+    ].join('\n');
+    const r = await run(compose);
+    const socks = r.findings.filter((f) => f.id === 'DOC-025');
+    expect(socks).toHaveLength(2);
+    expect(socks.map((f) => f.severity)).toEqual(['critical', 'critical']);
+    expect(socks[0].title).toMatch(/api/);
+    expect(socks[0].line).toBe(6);
+    expect(socks[1].title).toMatch(/traefik/);
+    expect(socks[1].suggestion).toMatch(/socket proxy/i);
+    // :ro does not make it safe — the Docker API over that socket is full control of the host.
+    expect(socks[0].description).toMatch(/read-only/i);
+  });
+
+  it('does NOT flag other sockets, commented-out mounts, or a docker.sock mentioned outside a mount', async () => {
+    const compose = [
+      'services:',
+      '  db:',
+      '    image: mysql:8',
+      '    restart: unless-stopped',
+      '    # - /var/run/docker.sock:/var/run/docker.sock',
+      '    volumes:',
+      '      - /var/run/mysqld/mysqld.sock:/var/run/mysqld/mysqld.sock',
+      '    environment:',
+      '      - DOCKER_HOST=unix:///var/run/docker.sock',
+      '',
+    ].join('\n');
+    const r = await run(compose);
+    expect(r.findings.filter((f) => f.id === 'DOC-025')).toHaveLength(0);
+  });
+
+  it('reports DOC-024 once per SERVICE, not once per file, naming each service', async () => {
+    const compose = [
+      'services:',
+      '  api:',
+      '    image: node:22',
+      '    ports:',
+      '      - "8000:8000"',
+      '      - "8001:8001"',
+      '  db:',
+      '    image: postgres:16',
+      '    ports:',
+      '      - "5432:5432"',
+      '  cache:',
+      '    image: redis:7',
+      '    ports:',
+      '      - "127.0.0.1:6379:6379"',
+      '',
+    ].join('\n');
+    const r = await run(compose);
+    const ports = r.findings.filter((f) => f.id === 'DOC-024');
+    expect(ports).toHaveLength(2); // api once (not twice), db once, cache never
+    expect(ports[0].title).toMatch(/api/);
+    expect(ports[0].line).toBe(5);
+    expect(ports[1].title).toMatch(/db/);
+    expect(ports[1].line).toBe(10);
+  });
+
+  it('treats an explicit 0.0.0.0 binding like a bare mapping', async () => {
+    const compose = ['services:', '  api:', '    ports:', '      - "0.0.0.0:8000:8000"', ''].join('\n');
+    const r = await run(compose);
+    expect(r.findings.filter((f) => f.id === 'DOC-024')).toHaveLength(1);
+  });
+
+  it('caps the DOC-024 penalty per file — six published dev services are one decision, not six failures', async () => {
+    const lines = ['services:'];
+    for (let i = 0; i < 6; i++)
+      lines.push(`  svc${i}:`, '    image: node:22', '    ports:', `      - "${8000 + i}:${8000 + i}"`);
+    lines.push('');
+    const r = await run(lines.join('\n'));
+    expect(r.findings.filter((f) => f.id === 'DOC-024')).toHaveLength(6);
+    // Six services with only DOC-024 (+ DOC-022 -0.3, DOC-023 -0.2): capped at -2.0 for the ports, so ≥ 7.5.
+    expect(r.score).toBeGreaterThanOrEqual(7.5);
+  });
+});

@@ -3,6 +3,34 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
+## [Unreleased]
+
+### Added
+- **`DOC-025` (critical): `/var/run/docker.sock` mounted into a compose service**,
+  short or long volume syntax. The Docker API over that socket is root on the
+  host, `:ro` or not. Found in the field on a production compose PRISM had
+  passed clean. A commented line, another unix socket, or the path inside an
+  env value do not fire; services that genuinely need it (proxies, dashboards,
+  CI runners) get a socket-proxy suggestion and a justified suppression.
+- **`AGT-004` now knows chat/messaging sources** — `msg.text`,
+  `ctx.message.text`, `update.message.caption`, `event.text`,
+  `interaction.options`, `payload.text`: the input channel of most real
+  agents. Interpolation into a prompt fires; the recommended patterns (a
+  structured `content: message.text` user turn, logging, a prompt firewall,
+  history merging, preview slicing) stay silent and are the benchmark traps.
+  `.content` is deliberately not a source: every chat-history loop says
+  `msg.content`. The prompt-context test now ignores the source expression
+  itself, so the word "message" inside `${message.text}` no longer makes a
+  log line look like prompt construction (two field false positives on a
+  real agent, fixed before the rule shipped).
+
+### Changed
+- **`DOC-024` fires once per service, not once per file**, and names the
+  service. A dev compose with two published services used to report one. An
+  explicit `0.0.0.0:` prefix counts like a bare mapping. The per-file penalty
+  is capped at 2.0 — six published dev services are one convention missing,
+  not six failures.
+
 ## [1.6.0] — 2026-09-17
 
 **The AI-layer release.** The triage judge now reads code only when code can

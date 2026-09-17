@@ -279,8 +279,20 @@ const EXTERNAL_CONTENT = new RegExp(
     'email\\.(body|content|text|html)',
     '(page|web|scraped?|fetched)[A-Z_]?\\w*(Content|Text|Html|Body)?',
     'document\\.body',
+    // Chat/messaging handlers — the input channel of most real agents
+    // (Telegram, Discord, Slack, WhatsApp): the message text a stranger typed.
+    // Only interpolation into a prompt counts; a structured user-role turn
+    // (`content: message.text`) is the recommended pattern and stays silent.
+    // `.content` is deliberately NOT a source: every chat-history loop says
+    // `msg.content` (field FP on orion's history merge) — Discord's
+    // message.content is a known gap, not worth that noise.
+    '\\b(msg|message|ctx\\.message|update\\.message|ctx\\.update\\.message)\\.(text|caption)\\b',
+    '\\bevent\\.text\\b',
+    '\\binteraction\\.(content|options)\\b',
+    '\\bpayload\\.text\\b',
   ].join('|'),
 );
+const EXTERNAL_CONTENT_ALL = new RegExp(EXTERNAL_CONTENT.source, 'g');
 
 /**
  * AGT-004 — external content interpolated into an LLM prompt/message: the line
@@ -293,9 +305,16 @@ export function detectExternalContentInPrompt(content: string): number[] {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (isPatternDefinition(l)) continue;
-    if (!PROMPT_CTX.test(l)) continue;
     const interpolations = l.match(/\$\{[^}]*\}/g);
-    if (interpolations?.some((expr) => EXTERNAL_CONTENT.test(expr))) hits.push(i + 1);
+    if (!interpolations) continue;
+    // Judge the prompt context on the line WITHOUT its interpolations and
+    // without any external-source expression: `${message.text}` — or a bare
+    // `message.text.length` next to it — must not itself supply the word
+    // "message" that makes a log line or a preview slice look like prompt
+    // construction (field FPs on orion).
+    const frame = l.replace(/\$\{[^}]*\}/g, '').replace(EXTERNAL_CONTENT_ALL, '');
+    if (!PROMPT_CTX.test(frame)) continue;
+    if (interpolations.some((expr) => EXTERNAL_CONTENT.test(expr))) hits.push(i + 1);
   }
   return hits;
 }

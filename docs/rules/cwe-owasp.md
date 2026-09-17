@@ -62,6 +62,7 @@ metadata module, and the semgrep rule pack in sync.
 | `DOC-020` | [CWE-250](https://cwe.mitre.org/data/definitions/250.html) | A05:2021 — Security Misconfiguration |
 | `DOC-021` | [CWE-798](https://cwe.mitre.org/data/definitions/798.html) | A07:2021 — Identification and Authentication Failures |
 | `DOC-024` | [CWE-1327](https://cwe.mitre.org/data/definitions/1327.html) | A05:2021 — Security Misconfiguration |
+| `DOC-025` | [CWE-668](https://cwe.mitre.org/data/definitions/668.html) | A05:2021 — Security Misconfiguration |
 | `DEP-001` | [CWE-494](https://cwe.mitre.org/data/definitions/494.html) | A08:2021 — Software and Data Integrity Failures |
 | `DEP-002` | [CWE-829](https://cwe.mitre.org/data/definitions/829.html) | A08:2021 — Software and Data Integrity Failures |
 | `DEP-AUDIT-CRITICAL` | [CWE-1395](https://cwe.mitre.org/data/definitions/1395.html) | A06:2021 — Vulnerable and Outdated Components |

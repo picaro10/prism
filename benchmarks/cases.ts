@@ -54,7 +54,8 @@ export const CASES: BenchCase[] = [
     categories: ['agentic'],
     files: {
       'package.json': PACKAGE_JSON,
-      'src/tool.ts': 'import { execSync } from "node:child_process";\nexport const run = (cmd: string) => execSync(`sh -c ${cmd}`);\n',
+      'src/tool.ts':
+        'import { execSync } from "node:child_process";\nexport const run = (cmd: string) => execSync(`sh -c ${cmd}`);\n',
     },
     expect: { 'src/tool.ts': ['AGT-001'] },
   },
@@ -134,7 +135,8 @@ export const CASES: BenchCase[] = [
     // were flagged critical. Placeholder passwords must not fire SEC-DB-URL.
     files: {
       'package.json': PACKAGE_JSON,
-      'src/generate-skill.ts': 'const example = "postgresql://user:password@localhost:5432/mydb";\nconst dev = "mysql://root:root@127.0.0.1/app";\n',
+      'src/generate-skill.ts':
+        'const example = "postgresql://user:password@localhost:5432/mydb";\nconst dev = "mysql://root:root@127.0.0.1/app";\n',
     },
     expect: { 'src/generate-skill.ts': [] },
   },
@@ -169,7 +171,8 @@ export const CASES: BenchCase[] = [
     categories: ['agentic'],
     files: {
       'package.json': PACKAGE_JSON,
-      'src/safe-tool.ts': 'import { execFileSync } from "node:child_process";\nexport const run = (dir: string) => execFileSync("ls", [dir]);\n',
+      'src/safe-tool.ts':
+        'import { execFileSync } from "node:child_process";\nexport const run = (dir: string) => execFileSync("ls", [dir]);\n',
     },
     expect: { 'src/safe-tool.ts': [] },
   },
@@ -268,6 +271,85 @@ export const CASES: BenchCase[] = [
     expect: { 'tests/api.test.ts': [] },
   },
 
+  // ── Field sweep, 17 sep 2026: gaps found on real repos ─────────────────
+  {
+    name: 'tp-docker-socket-mount',
+    categories: ['docker'],
+    // Seen in a real production compose: the Docker API over that socket is
+    // full control of the host, :ro or not.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'docker-compose.yml': [
+        'services:',
+        '  api:',
+        '    image: node:22',
+        '    restart: unless-stopped',
+        '    deploy:',
+        '      resources:',
+        '        limits:',
+        '          memory: 512M',
+        '    volumes:',
+        '      - /var/run/docker.sock:/var/run/docker.sock:ro',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'docker-compose.yml': ['DOC-025'] },
+  },
+  {
+    name: 'trap-other-unix-sockets-are-not-the-docker-socket',
+    categories: ['docker'],
+    files: {
+      'package.json': PACKAGE_JSON,
+      'docker-compose.yml': [
+        'services:',
+        '  db:',
+        '    image: mysql:8',
+        '    restart: unless-stopped',
+        '    deploy:',
+        '      resources:',
+        '        limits:',
+        '          memory: 512M',
+        '    # - /var/run/docker.sock:/var/run/docker.sock  (removed after review)',
+        '    volumes:',
+        '      - /var/run/mysqld/mysqld.sock:/var/run/mysqld/mysqld.sock',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'docker-compose.yml': [] },
+  },
+  {
+    name: 'tp-messaging-text-in-prompt',
+    categories: ['agentic'],
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/bot.ts':
+        'bot.on("message", async (msg) => {\n  const prompt = `Reply helpfully to: ${msg.text}`;\n  await llm(prompt);\n});\n',
+    },
+    expect: { 'src/bot.ts': ['AGT-004'] },
+  },
+  {
+    name: 'trap-messaging-text-as-user-turn',
+    categories: ['agentic'],
+    // The recommended pattern: the message is a user-role content block (data),
+    // it is logged, and it goes through a prompt firewall — never interpolated.
+    files: {
+      'package.json': PACKAGE_JSON,
+      'src/bot.ts': [
+        'bot.on("message", async (message) => {',
+        '  logger.info(`incoming: ${message.text}`);',
+        '  const verdict = analyzePrompt(message.text);',
+        '  const preview = message.text.length > 150 ? `${message.text.slice(0, 147)}...` : message.text;',
+        "  messages.push({ role: 'user', content: message.text });",
+        '  const prev = messages[messages.length - 2];',
+        '  for (const m of history) if (prev?.role === m.role) prev.content += `\\n${m.content}`;',
+        '  await llm(messages);',
+        '});',
+        '',
+      ].join('\n'),
+    },
+    expect: { 'src/bot.ts': [] },
+  },
+
   // ── Taint (semgrep) — v1.4.0 pillar 1 ───────────────────────────────────
   {
     name: 'tp-sqli-taint-express',
@@ -294,7 +376,14 @@ export const CASES: BenchCase[] = [
     requires: 'semgrep',
     files: {
       'package.json': PACKAGE_JSON,
-      'src/app.py': ['from flask import request', 'import pickle', '', 'def load():', '    return pickle.loads(request.data)', ''].join('\n'),
+      'src/app.py': [
+        'from flask import request',
+        'import pickle',
+        '',
+        'def load():',
+        '    return pickle.loads(request.data)',
+        '',
+      ].join('\n'),
     },
     expect: { 'src/app.py': ['SG-PICKLE-LOAD-UNTRUSTED-PY'] },
   },
