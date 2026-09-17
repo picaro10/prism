@@ -404,8 +404,19 @@ from production code.
   Project-fact rules — god files, import cycles, dependency advisories, missing tests, mixed
   conventions — are judged from the finding itself and batched into content-less calls: a
   1,500-line file is big whether or not the model reads it. Cross-file rules (agentic,
-  taint) are marked `neighborhood` for the upcoming import-graph context; today they read
-  the file. Unknown rules default to the safe, expensive tier.
+  taint) are `neighborhood` tier: see the next point. Unknown rules default to the safe,
+  expensive tier.
+- **Cross-file evidence, chosen deterministically.** The thing that makes an agentic or taint
+  finding benign often lives in another module — the executor that gates every destructive
+  tool, the validator whose body rejects shell metacharacters, the assertion helper that calls
+  `expect()`. For `neighborhood`-tier findings PRISM walks the import graph (no model in the
+  loop) and hands the judge the related files: modules the flagged file imports whose imported
+  names are used near the flagged line, and modules importing the flagged file that mention a
+  token from it (the tool name, the exported function). Bounded (4 files, 12 KB each, 30 KB
+  total), TS/JS only (tsconfig aliases resolved), and silent when nothing qualifies. On the
+  AI-triage benchmark this moved cross-file false positives caught from 1/3 to 3/3 with no
+  real issue excused. A cached verdict misses when a related file changes, not only the
+  flagged one.
 - **N-model vote.** A single model makes confident judgment errors (and re-checking with the
   same model shares its blind spots). `--ai-vote model-a,model-b,model-c` makes every
   false-positive verdict face a panel: the FP survives only if the panel is **unanimous** —

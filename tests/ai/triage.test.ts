@@ -545,4 +545,66 @@ describe('runTriage', () => {
       expect(r.summary).toEqual({ real: 1, falsePositive: 0, uncertain: 0 });
     });
   });
+
+  describe('neighborhood', () => {
+    const files = {
+      'src/validate.ts':
+        'export function assertSafeRef(r: string) { if (!/^[\\w./-]+$/.test(r)) throw new Error("bad"); }\n',
+      'src/git.ts':
+        'import { assertSafeRef } from "./validate.js";\nexport const f = (r: string) => { assertSafeRef(r); return execSync(`git log ${r}`); };\n',
+    } as Record<string, string>;
+    const read = async (p: string) => {
+      if (!(p in files)) throw new Error('ENOENT');
+      return files[p];
+    };
+
+    it('attaches related files to a neighborhood-tier unit when the inventory is given', async () => {
+      const client = new FakeClient(realVerdicts);
+      await runTriage(report([finding({ id: 'AGT-001', file: 'src/git.ts', line: 2 })]), read, client, {
+        files: Object.keys(files),
+      });
+      expect(client.units).toHaveLength(1);
+      expect(client.units[0].neighbors?.map((n) => n.file)).toEqual(['src/validate.ts']);
+    });
+
+    it('attaches nothing without the inventory, or for a file-tier finding', async () => {
+      const c1 = new FakeClient(realVerdicts);
+      await runTriage(report([finding({ id: 'AGT-001', file: 'src/git.ts', line: 2 })]), read, c1);
+      expect(c1.units[0].neighbors).toBeUndefined();
+      const c2 = new FakeClient(realVerdicts);
+      await runTriage(report([finding({ id: 'SEC-AWS-KEY', file: 'src/git.ts', line: 2 })]), read, c2, {
+        files: Object.keys(files),
+      });
+      expect(c2.units[0].neighbors).toBeUndefined();
+    });
+
+    it('the verify pass sees the same related files', async () => {
+      const fp = (u: TriageUnit): Verdict[] =>
+        u.findings.map((f) => ({
+          findingKey: findingKey(f),
+          classification: 'false-positive',
+          confidence: 0.8,
+          reasoning: 'fp',
+        }));
+      const client = new FakeClient(fp, fp);
+      await runTriage(report([finding({ id: 'AGT-001', file: 'src/git.ts', line: 2 })]), read, client, {
+        files: Object.keys(files),
+      });
+      expect(client.verifyUnits[0].neighbors?.map((n) => n.file)).toEqual(['src/validate.ts']);
+    });
+
+    it('a cached verdict misses when a related file changes', async () => {
+      const cache = new VerdictCache(join(mkdtempSync(join(tmpdir(), 'prism-nb-cache-')), 'v.json'));
+      const findings = [finding({ id: 'AGT-001', file: 'src/git.ts', line: 2 })];
+      await runTriage(report(findings), read, new FakeClient(realVerdicts), { cache, files: Object.keys(files) });
+      const edited = {
+        ...files,
+        'src/validate.ts': 'export function assertSafeRef(r: string) { return r; } // weakened\n',
+      };
+      const readEdited = async (p: string) => edited[p];
+      const c2 = new FakeClient(realVerdicts);
+      await runTriage(report(findings), readEdited, c2, { cache, files: Object.keys(files) });
+      expect(c2.units).toHaveLength(1); // judged again: the evidence changed even though git.ts did not
+    });
+  });
 });

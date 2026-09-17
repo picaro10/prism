@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { runAudit } from '../../src/core/engine.js';
+import { scanProject } from '../../src/core/scanner.js';
 import { runTriage } from '../../src/ai/triage.js';
 import { findingKey } from '../../src/ai/types.js';
 import type {
@@ -53,6 +54,11 @@ export interface AiCaseResult {
   ms: number;
 }
 
+/** File content plus every related file the unit carries — what the model actually reads. */
+function unitBytes(unit: TriageUnit): number {
+  return unit.content.length + (unit.neighbors?.reduce((n, x) => n + x.content.length, 0) ?? 0);
+}
+
 /** Wraps a client to count calls and the file content bytes sent (the cost the tiers cut). */
 export class CountingClient implements LLMClient {
   calls = 0;
@@ -60,12 +66,12 @@ export class CountingClient implements LLMClient {
   constructor(private inner: LLMClient) {}
   triage(unit: TriageUnit, ctx: ProjectContext): Promise<Verdict[]> {
     this.calls++;
-    this.contentBytes += unit.content.length;
+    this.contentBytes += unitBytes(unit);
     return this.inner.triage(unit, ctx);
   }
   verify(unit: TriageUnit, ctx: ProjectContext): Promise<Verdict[]> {
     this.calls++;
-    this.contentBytes += unit.content.length;
+    this.contentBytes += unitBytes(unit);
     return this.inner.verify(unit, ctx);
   }
   summarize(digest: string, ctx: ProjectContext): Promise<string> {
@@ -113,7 +119,8 @@ export async function runAiCase(c: AiBenchCase, opts: RunOptions): Promise<AiCas
     report.findings = [target];
 
     const verifiers = opts.verifiers?.map((v) => new CountingClient(v));
-    const triage = await runTriage(report, confinedReader(dir), counting, { verify: true, verifiers });
+    const { files } = await scanProject(dir);
+    const triage = await runTriage(report, confinedReader(dir), counting, { verify: true, verifiers, files });
     const verdict = triage.verdicts.find((v) => v.findingKey === findingKey(target));
     const calls = counting.calls + (verifiers?.reduce((n, v) => n + v.calls, 0) ?? 0);
     const contentBytes = counting.contentBytes + (verifiers?.reduce((n, v) => n + v.contentBytes, 0) ?? 0);

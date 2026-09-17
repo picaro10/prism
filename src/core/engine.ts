@@ -256,7 +256,7 @@ export async function runAudit(
     // The verdict cache is keyed by the project root; an injected client
     // (tests) gets none, so fakes never leave files in the operator's cache.
     const cacheRoot = injectedClient ? undefined : config.targetPath;
-    await applyAiTriage(report, fileReader, config, onProgress, injectedClient, cacheRoot);
+    await applyAiTriage(report, fileReader, config, onProgress, injectedClient, cacheRoot, scan.files);
   }
 
   return report;

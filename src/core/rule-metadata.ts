@@ -127,9 +127,9 @@ export function ruleMetadataFor(
 // - `neighborhood`: the verdict depends on code OUTSIDE the file — the
 //   sanitizer, the auth gate, the policy layer that a line-level rule cannot
 //   see (the AGT-003 case on orion: every destructive tool was "ungated" in
-//   its own file because the gate lived in a Policy DSL elsewhere). Today
-//   this behaves as `file`; the import-graph neighborhood builder that
-//   fulfils it is the next step of the AI-layer roadmap.
+//   its own file because the gate lived in a Policy DSL elsewhere). The
+//   judge additionally gets the related files the import graph points at
+//   (see src/ai/neighborhood.ts); with no usable neighbor it behaves as `file`.
 //
 // Remediation deliberately ignores tiers: proposing how to split a god file
 // or which line of package.json to bump genuinely needs the content.

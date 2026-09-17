@@ -6,6 +6,25 @@ All notable changes to PRISM are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- **Cross-file context for the AI judge (`neighborhood` tier).** A line-level
+  rule fires in one file, but what makes it benign often lives in another —
+  the executor gating every destructive tool, the validator rejecting shell
+  metacharacters, the assertion helper calling `expect()`. `src/ai/
+  neighborhood.ts` now picks those files deterministically from the import
+  graph (no model in the loop): modules the flagged file imports whose
+  imported names are used within 40 lines of a flagged line, and modules
+  importing the flagged file that mention an anchor token from it (string
+  literals, identifiers — not the binding name itself). Comments and string
+  contents are ignored when checking usage (`git log` must not summon a
+  module named `log`), template interpolations are kept. Bounded: 4 files,
+  12 KB each, 30 KB total; TS/JS with tsconfig aliases; empty when nothing
+  qualifies. Related files are shown to the judge with the reason each is
+  there, and the prompt requires that a gate or sanitizer excuse a finding
+  only if the flagged code actually goes through it. The verdict cache key
+  covers neighbors, so editing a validator re-judges the code that relies
+  on it. AI-triage benchmark: cross-file false positives caught 1/3 → 3/3,
+  15/15 overall, 0 real issues excused. `prism triage` re-scans the root to
+  get the inventory the graph needs.
 - **Verdict cache for the AI layer.** Every final triage verdict and fix is
   stored under a key of prompt text + judge (provider, model, panel) +
   finding identity + hash of the content the model read, in the operator's

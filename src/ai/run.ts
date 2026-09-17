@@ -27,7 +27,8 @@ type AiConfig = Pick<
  *
  * `cacheRoot` is the project the verdicts belong to; when given (and
  * `aiCache` is not false, and this is not a dry run) verdicts and fixes are
- * reused from / stored in the operator's cache for that project.
+ * reused from / stored in the operator's cache for that project. `files` is
+ * the project inventory that lets cross-file rules pull in related files.
  */
 export async function applyAiTriage(
   report: AuditReport,
@@ -36,6 +37,7 @@ export async function applyAiTriage(
   onProgress?: (message: string) => void,
   injectedClient?: LLMClient,
   cacheRoot?: string,
+  files?: string[],
 ): Promise<void> {
   try {
     let cache: VerdictCache | undefined;
@@ -68,6 +70,7 @@ export async function applyAiTriage(
       concurrency: config.aiConcurrency,
       verifiers,
       cache,
+      files,
     });
     const cachedNote = report.aiTriage.summary.cached ? ` (${report.aiTriage.summary.cached} from cache)` : '';
     onProgress?.(`AI triage complete${cachedNote}`);

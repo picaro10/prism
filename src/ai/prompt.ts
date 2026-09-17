@@ -25,6 +25,11 @@ export function buildSystemPrompt(): string {
     'Some findings arrive without file content (their rule is judged from a project-level fact);',
     'classify those on the stated facts alone and never cite code you were not shown.',
     '',
+    'Some units include RELATED FILES — modules the flagged file imports, or that import it —',
+    'because the evidence for or against a finding may live there (a validator, an executor that',
+    'gates a tool, an assertion helper). A gate or sanitizer in a related file excuses a finding',
+    'only if the flagged code actually goes through it; cite the file and the construct.',
+    '',
     'For every finding you are given, return one verdict object. Echo back the exact findingKey',
     'string you were given for that finding. Keep reasoning to one or two sentences.',
   ].join('\n');
@@ -108,6 +113,17 @@ export function buildUserContent(unit: TriageUnit, heading = 'Findings to triage
       'metadata, because its evidence is a project-level fact (a count, the import graph, an advisory',
       'database, a missing file), not a line of code. Do not invent code you were not shown.',
     );
+  }
+
+  if (unit.neighbors?.length) {
+    parts.push('');
+    parts.push('Related files (evidence for the findings below — see why each is included):');
+    for (const n of unit.neighbors) {
+      parts.push(`Related file: ${n.file} (${n.reason})`);
+      parts.push('```');
+      parts.push(n.content);
+      parts.push('```');
+    }
   }
 
   parts.push('');

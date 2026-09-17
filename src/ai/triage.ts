@@ -5,6 +5,7 @@ import { tallyVerdicts } from './vote.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { contextTierFor } from '../core/rule-metadata.js';
 import { cacheKey, judgeId, type VerdictCache } from './cache.js';
+import { buildNeighborhood, buildNeighborhoodIndex, unitContext, type NeighborhoodIndex } from './neighborhood.js';
 
 const DEFAULT_CONCURRENCY = 5;
 
@@ -32,6 +33,12 @@ export interface TriageOptions {
    * every fresh final verdict is stored. Unset = every finding is judged.
    */
   cache?: VerdictCache;
+  /**
+   * Project file inventory. When given, `neighborhood`-tier findings get the
+   * related files (imports / importers) that carry their cross-file evidence
+   * — see ./neighborhood.ts. Without it, every finding is judged on its own file.
+   */
+  files?: string[];
 }
 
 export function buildProjectContext(report: AuditReport): ProjectContext {
@@ -153,6 +160,17 @@ export async function runTriage(
   const keyOf = (f: Finding, content: string) => cacheKey({ kind: 'triage', judge, content, finding: f });
   let cachedCount = 0;
 
+  // The import-graph index is built once, lazily, and only if some finding
+  // on some file actually needs cross-file evidence.
+  let indexPromise: Promise<NeighborhoodIndex> | null = null;
+  const needsNeighborhood = (findings: Finding[]) => findings.some((f) => contextTierFor(f.id) === 'neighborhood');
+  const neighborhoodFor = async (file: string, content: string, findings: Finding[]) => {
+    if (!options.files || !needsNeighborhood(findings)) return undefined;
+    indexPromise ??= buildNeighborhoodIndex(options.files, readFile);
+    const neighbors = await buildNeighborhood(file, content, findings, await indexPromise, readFile);
+    return neighbors.length > 0 ? neighbors : undefined;
+  };
+
   // First pass: read each file (when the tier needs it), reuse every verdict
   // the cache already holds for this judge + content, and triage the rest
   // with bounded concurrency.
@@ -167,7 +185,10 @@ export async function runTriage(
         content = '';
       }
     }
-    const unit: TriageUnit = { file, content, findings };
+    const neighbors = file ? await neighborhoodFor(file, content, findings) : undefined;
+    const unit: TriageUnit = { file, content, findings, ...(neighbors ? { neighbors } : {}) };
+    // The cache key covers everything the model reads — neighbors included.
+    const context = unitContext(content, neighbors);
 
     const cached: Verdict[] = [];
     const pending: Finding[] = [];
@@ -175,7 +196,7 @@ export async function runTriage(
     for (const f of findings) {
       const fk = findingKey(f);
       if (cache) {
-        const ck = keyOf(f, content);
+        const ck = keyOf(f, context);
         keys.set(fk, ck);
         const hit = asVerdict(cache.get(ck), fk);
         if (hit) {
@@ -190,7 +211,7 @@ export async function runTriage(
 
     attemptedGroups++;
     try {
-      const returned = await client.triage({ file, content, findings: pending }, ctx);
+      const returned = await client.triage({ ...unit, findings: pending }, ctx);
       const { verdicts: fresh, answered } = alignVerdictsDetailed(pending, returned);
       // real / uncertain are final now (only false-positives face the verify pass).
       if (cache) {
@@ -239,7 +260,7 @@ export async function runTriage(
 
     if (fpGroups.length > 0) {
       const verifyResults = await mapWithConcurrency(fpGroups, concurrency, async (g) => {
-        const unit: TriageUnit = { file: g.unit.file, content: g.unit.content, findings: g.findings };
+        const unit: TriageUnit = { ...g.unit, findings: g.findings };
         let voterFailed = false;
         const perVoter = await Promise.all(
           verifiers.map(async (voter) => {

@@ -76,6 +76,10 @@ export function registerTriageCommand(program: Command): void {
       const { confinedReader } = await import('../../utils/safe-read.js');
       console.error(chalk.dim(`  Reading code from ${rootCheck.root}`));
       const reader: FileReader = confinedReader(rootCheck.root);
+      // Cross-file rules need the inventory to find related files; a re-scan
+      // of the root is cheap (seconds) next to the AI calls it saves.
+      const { scanProject } = await import('../../core/scanner.js');
+      const { files } = await scanProject(rootCheck.root);
       const aiConfig: Pick<
         PrismConfig,
         | 'aiModel'
@@ -116,6 +120,7 @@ export function registerTriageCommand(program: Command): void {
         },
         undefined,
         rootCheck.root,
+        files,
       );
 
       if (!report.aiTriage) {

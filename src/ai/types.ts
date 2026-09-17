@@ -30,6 +30,14 @@ export interface Remediation {
   effort: RemediationEffort;
 }
 
+/** A related file shown to the judge as evidence (see ./neighborhood.ts). */
+export interface Neighbor {
+  file: string;
+  content: string;
+  /** Why this file is here — the import link, stated so the judge can weigh it. */
+  reason: string;
+}
+
 /** One triage call's input: a file's content + the findings on it. */
 export interface TriageUnit {
   /** File path, or null for project-level findings. */
@@ -37,6 +45,8 @@ export interface TriageUnit {
   /** File content ('' for project-level or unreadable). */
   content: string;
   findings: Finding[];
+  /** Related files (imports / importers) for cross-file rules; absent when none qualified. */
+  neighbors?: Neighbor[];
 }
 
 export interface ProjectContext {

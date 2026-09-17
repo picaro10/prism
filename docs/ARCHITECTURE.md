@@ -48,9 +48,12 @@ doctrine behind the scoring — not a tour of every file.
    database — so the finding is batched without file content), `file` (a
    line pattern; the file is sent — and the default for any unknown rule,
    so a new rule can only be made cheaper on purpose), `neighborhood`
-   (the verdict depends on code elsewhere; reserved for the import-graph
-   context builder, behaves as `file` until then). Remediation ignores
-   tiers on purpose: proposing a fix genuinely needs the content.
+   (the verdict depends on code elsewhere: `src/ai/neighborhood.ts` walks
+   the import graph — imports whose names are used near the flagged line,
+   importers that mention an anchor token from it — and attaches those
+   files as evidence, bounded and deterministic, falling back to `file`
+   when nothing qualifies). Remediation ignores tiers on purpose:
+   proposing a fix genuinely needs the content.
    Final verdicts and fixes go through the **verdict cache**
    (`src/ai/cache.ts`): keyed by prompt text, judge identity, finding
    identity and a hash of the content sent, stored in the operator's cache

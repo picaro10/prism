@@ -148,6 +148,25 @@ describe('buildUserContent', () => {
     expect(c).not.toMatch(/```/);
   });
 
+  it('renders related files after the main file, each with its reason', () => {
+    const unit: TriageUnit = {
+      file: 'src/git.ts',
+      content: 'main',
+      findings: [],
+      neighbors: [
+        {
+          file: 'src/validate.ts',
+          content: 'export const v = 1;',
+          reason: 'imported by src/git.ts; v used near the flagged code',
+        },
+      ],
+    };
+    const c = buildUserContent(unit);
+    expect(c).toMatch(/Related file: src\/validate\.ts \(imported by src\/git\.ts; v used near the flagged code\)/);
+    expect(c.indexOf('File: src/git.ts')).toBeLessThan(c.indexOf('Related file:'));
+    expect(c).toMatch(/export const v = 1;/);
+  });
+
   it('truncates very large file content', () => {
     const big = 'x\n'.repeat(40000); // 80k chars > 60k MAX_CONTENT_CHARS
     const unit: TriageUnit = { file: 'big.ts', content: big, findings: [] };
