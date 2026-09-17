@@ -1,6 +1,6 @@
 {
   "name": "@latenciatech/prism",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "The auditor for AI-written code, its agents, and the pipelines that ship it — deterministic rules with their own false-positive traps, and an AI judge that reads the code",
   "type": "module",
   "bin": {

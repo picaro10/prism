@@ -3,7 +3,16 @@
 All notable changes to PRISM are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and PRISM follows semantic versioning.
 
-## [Unreleased]
+## [1.7.0] — 2026-09-18
+
+**The field release.** Six real repositories and a production Python agent
+framework were audited between 1.6.0 and this: every gap they exposed is a
+rule or a fix here, and every false positive they produced is a benchmark
+trap. New critical rule for the Docker socket, per-service port findings,
+chat-message sources for prompt injection, full Python parity for the
+agentic checks, nested `.gitignore`, Python docstrings, and four fixes from
+a self-review of the AI layer. Plus the README a stranger can read in
+thirty seconds. Risk chains move to 1.8.
 
 ### Added
 - **Python parity for the agentic checks.** `AGT-001` knows `os.system`/
